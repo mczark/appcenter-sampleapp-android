@@ -1,5 +1,7 @@
 # Visual Studio App Center Sample App for Android
 
+> **Nowość:** w katalogu [`invoice-scanner/`](invoice-scanner/README.md) znajduje się osobna aplikacja Android, która wyszukuje w Gmailu faktury do opłacenia i pokazuje dane do przelewu.
+
 The Android application in this repository and its corresponding tutorials will help you quickly and easily onboard to Visual Studio App Center.
 
 ## About this repository

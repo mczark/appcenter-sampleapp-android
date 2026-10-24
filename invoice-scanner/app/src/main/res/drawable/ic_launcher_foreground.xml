@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Kartka faktury z linijkami tekstu i znakiem kwoty. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,30h24l10,10v38a2,2 0,0 1,-2 2h-32a2,2 0,0 1,-2 -2v-46a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#BBD0EE"
+        android:pathData="M62,30l10,10h-10z" />
+    <path
+        android:fillColor="#1E5AA8"
+        android:pathData="M42,46h20v3h-20zM42,53h24v3h-24zM42,60h16v3h-16z" />
+    <path
+        android:fillColor="#2E9E5B"
+        android:pathData="M56,66h12v8h-12z" />
+</vector>
