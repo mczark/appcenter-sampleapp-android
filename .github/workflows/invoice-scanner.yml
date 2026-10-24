@@ -3,6 +3,7 @@ name: Invoice Scanner
 on:
   push:
     branches: [master]
+    tags: ["invoice-scanner-v*"]
     paths:
       - "invoice-scanner/**"
       - ".github/workflows/invoice-scanner.yml"
@@ -38,8 +39,9 @@ jobs:
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
-      - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+      # Release budowany tu bez podpisu – sprawdza kompilację i lintVital także na pull requestach.
+      - name: Build debug APK and unsigned release
+        run: ./gradlew --no-daemon assembleDebug assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -55,3 +57,98 @@ jobs:
           name: invoice-scanner-test-reports
           path: invoice-scanner/app/build/reports/tests/
           if-no-files-found: ignore
+
+  release:
+    name: Signed release build
+    needs: build
+    # Pull requesty (także z forków) nie mają dostępu do klucza podpisu.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: invoice-scanner
+    env:
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      VERSION_CODE: ${{ github.run_number }}
+
+    steps:
+      - name: Check signing secrets
+        id: secrets
+        run: |
+          missing=""
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_KEYSTORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::Pominięto podpisany build release – brak sekretów:$missing (patrz invoice-scanner/README.md)"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+        working-directory: .
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.available == 'true'
+
+      - uses: actions/setup-java@v4
+        if: steps.secrets.outputs.available == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.secrets.outputs.available == 'true'
+
+      - name: Decode keystore
+        if: steps.secrets.outputs.available == 'true'
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          echo "RELEASE_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Set version name
+        if: steps.secrets.outputs.available == 'true'
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/invoice-scanner-v* ]]; then
+            echo "VERSION_NAME=${GITHUB_REF#refs/tags/invoice-scanner-v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION_NAME=1.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build signed APK and App Bundle
+        if: steps.secrets.outputs.available == 'true'
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Verify APK signature
+        if: steps.secrets.outputs.available == 'true'
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Remove keystore
+        if: always() && steps.secrets.outputs.available == 'true'
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Upload release artifacts
+        if: steps.secrets.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-scanner-release
+          path: |
+            invoice-scanner/app/build/outputs/apk/release/app-release.apk
+            invoice-scanner/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: steps.secrets.outputs.available == 'true' && startsWith(github.ref, 'refs/tags/invoice-scanner-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Faktury z Gmaila ${{ env.VERSION_NAME }}
+          files: |
+            invoice-scanner/app/build/outputs/apk/release/app-release.apk
+            invoice-scanner/app/build/outputs/bundle/release/app-release.aab
