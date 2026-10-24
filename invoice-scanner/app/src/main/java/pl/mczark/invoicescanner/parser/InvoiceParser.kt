@@ -10,6 +10,11 @@ data class ParsedInvoice(
     val sellerNip: String? = null,
     /** Znormalizowany IBAN, np. PL61109010140000071219812874. */
     val accountNumber: String? = null,
+    /**
+     * false, gdy numer konta nie przeszedł weryfikacji sumy kontrolnej (najczęściej błąd OCR
+     * w jednej cyfrze) – trzeba go porównać z fakturą.
+     */
+    val accountVerified: Boolean = true,
     val amount: BigDecimal? = null,
     val currency: String? = null,
     val dueDate: LocalDate? = null,
@@ -23,12 +28,14 @@ data class ParsedInvoice(
      * (np. "faktura nr", "do zapłaty", "termin płatności").
      */
     val strongInvoiceSignal: Boolean = false,
+    /** Tekst wygląda na newsletter / reklamę (stopka "wypisz się", warunki kredytu RRSO itp.). */
+    val marketing: Boolean = false,
     /** Pewność kwoty: 3 – "do zapłaty", 2 – "razem brutto", 1 – "razem/suma", 0 – brak słowa kluczowego. */
     val amountConfidence: Int = 0,
 ) {
     /** Im więcej pól udało się znaleźć, tym wyższy wynik. */
     val score: Int
-        get() = (if (accountNumber != null) 4 else 0) +
+        get() = (if (accountNumber != null) (if (accountVerified) 4 else 2) else 0) +
             (if (amount != null) 3 else 0) +
             (if (dueDate != null) 1 else 0) +
             (if (invoiceNumber != null) 1 else 0) +
@@ -40,7 +47,11 @@ data class ParsedInvoice(
         invoiceNumber = invoiceNumber ?: other.invoiceNumber,
         sellerName = sellerName ?: other.sellerName,
         sellerNip = sellerNip ?: other.sellerNip,
-        accountNumber = accountNumber ?: other.accountNumber,
+        // Zweryfikowany numer z innego źródła jest lepszy niż niezweryfikowany odczyt OCR.
+        accountNumber = if (accountNumber == null || (!accountVerified && other.accountVerified && other.accountNumber != null))
+            other.accountNumber else accountNumber,
+        accountVerified = if (accountNumber == null || (!accountVerified && other.accountVerified && other.accountNumber != null))
+            other.accountVerified else accountVerified,
         amount = amount ?: other.amount,
         amountConfidence = if (amount == null) other.amountConfidence else amountConfidence,
         currency = if (amount == null) other.currency ?: currency else currency ?: other.currency,
@@ -50,6 +61,7 @@ data class ParsedInvoice(
         alreadyPaid = alreadyPaid || other.alreadyPaid,
         looksLikeInvoice = looksLikeInvoice || other.looksLikeInvoice,
         strongInvoiceSignal = strongInvoiceSignal || other.strongInvoiceSignal,
+        marketing = marketing || other.marketing,
     )
 }
 
@@ -65,9 +77,16 @@ object InvoiceParser {
     )
 
     private val STRONG_INVOICE_SIGNALS = Regex(
-        "faktur[ay]? (vat|nr|numer|korygujac|proforma|elektroniczn)|(nr|numer) faktury|do zaplaty|" +
+        "faktur[ay]? (vat|nr|numer|korygujac|proforma|elektroniczn)|(nr|numer) faktury|" +
+            "(?<!calkowita kwota )do zaplaty|naleznosc ogolem|" +
             "termin (platnosci|zaplaty)|(nr|numer) (konta|rachunku)|sprzedawca|nabywca|" +
             "invoice (no|number|#)|amount due|due date"
+    )
+
+    /** Stopki newsletterów i obowiązkowe informacje z reklam kredytu ratalnego. */
+    private val MARKETING_SIGNALS = Regex(
+        "newsletter|nie chce otrzymywac|wypisz sie|wypisac sie|rezygnacja z subskrypcji|unsubscribe|" +
+            "rzeczywista roczna stopa oprocentowania|\\brrso\\b|nie jest oferta w rozumieniu"
     )
 
     // --- Kwoty -------------------------------------------------------------------------------
@@ -120,7 +139,8 @@ object InvoiceParser {
 
     // --- Numer faktury -----------------------------------------------------------------------
 
-    private const val NUMBER_TOKEN = "([A-Z0-9][A-Z0-9/\\-_.]*\\d[A-Z0-9/\\-_.]*)"
+    // Opcjonalny prefiks serii pisany wielkimi literami ze spacją, np. "FA 94/10/26".
+    private const val NUMBER_TOKEN = "((?:(?-i:[A-Z]{1,4}) )?[A-Z0-9][A-Z0-9/\\-_.]*\\d[A-Z0-9/\\-_.]*)"
     private val INVOICE_NUMBER_PATTERNS = listOf(
         Regex("(?:nr|numer)\\s+(?:faktury|dokumentu|rachunku)\\s*[:.]?\\s*$NUMBER_TOKEN", RegexOption.IGNORE_CASE),
         Regex(
@@ -157,13 +177,15 @@ object InvoiceParser {
         val amount = findAmount(lines, folded)
         val dueDate = findDate(lines, folded, DUE_KEYWORDS) ?: findDueInDays(folded, issueDate)
 
+        val account = findAccount(lines, folded)
         val paidByRemainingZero = amount?.let { it.priority == 3 && it.value.signum() == 0 } == true
 
         return ParsedInvoice(
             invoiceNumber = findInvoiceNumber(lines),
             sellerName = findSellerName(lines, folded),
             sellerNip = findSellerNip(lines, folded),
-            accountNumber = findAccount(lines, folded),
+            accountNumber = account?.first,
+            accountVerified = account?.second ?: true,
             amount = amount?.value?.takeIf { it.signum() > 0 },
             currency = amount?.currency ?: findDocumentCurrency(foldedAll),
             dueDate = dueDate,
@@ -172,6 +194,7 @@ object InvoiceParser {
             alreadyPaid = paidByRemainingZero || PAID.containsMatchIn(foldedAll),
             looksLikeInvoice = INVOICE_KEYWORDS.any { foldedAll.contains(it) },
             strongInvoiceSignal = STRONG_INVOICE_SIGNALS.containsMatchIn(foldedAll),
+            marketing = MARKETING_SIGNALS.containsMatchIn(foldedAll),
             amountConfidence = amount?.priority ?: 0,
         )
     }
@@ -237,7 +260,8 @@ object InvoiceParser {
         else -> null
     }
 
-    private fun findAccount(lines: List<String>, folded: List<String>): String? {
+    /** Numer konta i informacja, czy przeszedł weryfikację sumy kontrolnej. */
+    private fun findAccount(lines: List<String>, folded: List<String>): Pair<String, Boolean>? {
         data class Candidate(val iban: String, val lineIndex: Int, val nearKeyword: Boolean)
 
         val candidates = lines.flatMapIndexed { index, line ->
@@ -247,33 +271,56 @@ object InvoiceParser {
                 Candidate(iban, index, near)
             }.toList()
         }
-        return (candidates.firstOrNull { it.nearKeyword } ?: candidates.firstOrNull())?.iban
-            ?: findLooseAccount(lines, folded)
+        (candidates.firstOrNull { it.nearKeyword } ?: candidates.firstOrNull())?.let { return it.iban to true }
+
+        // Okolice słów "konto", "rachunek"… (do 2 linii niżej), a potem cały dokument – OCR potrafi
+        // rozdzielić etykietę i numer do różnych bloków tekstu.
+        val keywordRegions = lines.indices
+            .filter { ACCOUNT_KEYWORDS.containsMatchIn(folded[it]) }
+            .map { i -> (i..minOf(i + 2, lines.lastIndex)).joinToString(" ") { lines[it] } }
+        val allRegions = lines + lines.zipWithNext { a, b -> "$a $b" }
+        for (region in keywordRegions + allRegions) {
+            findLooseAccount(region)?.let { return it to true }
+        }
+        // Brak poprawnej sumy kontrolnej: pokazujemy odczytany numer z ostrzeżeniem, żeby
+        // użytkownik mógł go porównać z fakturą i poprawić jedną błędną cyfrę.
+        for (region in keywordRegions + lines) {
+            findUnverifiedAccount(region)?.let { return it to false }
+        }
+        return null
     }
 
-    /**
-     * Druga próba tylko w okolicy słów "konto", "rachunek" itp.: numer rozbity spacjami co cyfrę,
-     * przeniesiony do kolejnej linii albo przekłamany przez OCR. Fałszywe trafienia odsiewa suma
-     * kontrolna IBAN.
-     */
-    private fun findLooseAccount(lines: List<String>, folded: List<String>): String? {
-        for (i in lines.indices) {
-            if (!ACCOUNT_KEYWORDS.containsMatchIn(folded[i])) continue
-            val region = (i..minOf(i + 2, lines.lastIndex)).joinToString(" ") { lines[it] }
-            for (run in LOOSE_ACCOUNT_RUN.findAll(region)) {
-                if (run.value.count { it.isDigit() } < 16) continue
-                val tokens = run.value.split(' ', '-').filter { it.isNotEmpty() }
+    /** Ciągi znaków wyglądające na numer konta, z poprawionymi typowymi pomyłkami OCR. */
+    private fun accountRuns(region: String): Sequence<List<String>> =
+        LOOSE_ACCOUNT_RUN.findAll(region)
+            .filter { run -> run.value.count { it.isDigit() } >= 16 }
+            .map { run ->
+                run.value.split(' ', '-').filter { it.isNotEmpty() }
                     .map { token -> token.map { OCR_DIGITS[it] ?: it }.joinToString("") }
-                // Numer może zaczynać się od dowolnego "słowa" ciągu – przed nim bywają inne liczby.
-                for (start in tokens.indices) {
-                    val digits = tokens.drop(start).joinToString("")
-                    if (digits.length < 26) break
-                    Iban.normalize(digits.take(26))?.let { return it }
-                }
+            }
+
+    /**
+     * Numer rozbity spacjami co cyfrę, przeniesiony do kolejnej linii albo przekłamany przez OCR.
+     * Fałszywe trafienia odsiewa suma kontrolna IBAN.
+     */
+    private fun findLooseAccount(region: String): String? {
+        for (tokens in accountRuns(region)) {
+            // Numer może zaczynać się od dowolnego "słowa" ciągu – przed nim bywają inne liczby.
+            for (start in tokens.indices) {
+                val digits = tokens.drop(start).joinToString("")
+                if (digits.length < 26) break
+                Iban.normalize(digits.take(26))?.let { return it }
             }
         }
         return null
     }
+
+    /** Dokładnie 26 cyfr (polski NRB) bez poprawnej sumy kontrolnej. */
+    private fun findUnverifiedAccount(region: String): String? =
+        accountRuns(region)
+            .map { tokens -> tokens.joinToString("") }
+            .firstOrNull { it.length == 26 && it.all(Char::isDigit) }
+            ?.let { "PL$it" }
 
     /** Dopasowanie bywa zachłanne (np. doklejony rok po numerze), więc próbujemy też samego prefiksu. */
     private fun normalizeAccount(raw: String): String? {

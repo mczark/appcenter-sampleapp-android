@@ -120,6 +120,7 @@ class InvoiceScanner(
             recipientName = recipient,
             recipientNip = merged.sellerNip,
             accountNumber = merged.accountNumber,
+            accountVerified = merged.accountVerified,
             amount = merged.amount?.toPlainString(),
             currency = merged.currency ?: "PLN",
             invoiceNumber = merged.invoiceNumber,
@@ -139,7 +140,8 @@ class InvoiceScanner(
      * Odróżnia faktury od reklam i newsletterów, które też zawierają słowo "faktura" i ceny:
      * - musi być wyraźny sygnał faktury (załącznik-faktura, "faktura nr", "do zapłaty", temat maila),
      * - musi być numer konta albo kwota przy słowie "do zapłaty" / "razem brutto",
-     * - mail z nagłówkiem List-Unsubscribe (newsletter) bez faktury w załączniku i bez numeru konta odpada.
+     * - newsletter (nagłówek List-Unsubscribe, stopka "wypisz się", reklama kredytu z RRSO) bez faktury
+     *   w załączniku i bez numeru konta odpada.
      */
     private fun isPayableInvoice(
         message: GmailMessage,
@@ -152,7 +154,8 @@ class InvoiceScanner(
         val confidentAmount = merged.amountConfidence >= 2 ||
             (merged.amountConfidence == 1 && merged.invoiceNumber != null)
         val payable = merged.accountNumber != null || (merged.amount != null && confidentAmount)
-        val newsletter = message.header("List-Unsubscribe") != null && !invoiceAttachment && merged.accountNumber == null
+        val newsletter = (message.header("List-Unsubscribe") != null || merged.marketing) &&
+            !invoiceAttachment && merged.accountNumber == null
         return strongSignal && payable && !newsletter
     }
 
@@ -169,7 +172,7 @@ class InvoiceScanner(
         private const val TAG = "InvoiceScanner"
         const val DEFAULT_DAYS_BACK = 90
         /** Zwiększ po zmianie reguł analizy – zapisane wyniki zostaną przeliczone przy skanowaniu. */
-        const val ANALYSIS_VERSION = 2
+        const val ANALYSIS_VERSION = 3
         private const val MAX_SOURCE_TEXT_CHARS = 30_000
         private const val MAX_MESSAGES = 200
         private const val MIN_PLAIN_TEXT_CHARS = 200

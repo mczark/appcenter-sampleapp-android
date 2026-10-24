@@ -112,7 +112,7 @@ class InvoiceParserTest {
     }
 
     @Test
-    fun `ignores invalid account numbers and dates as amounts`() {
+    fun `marks account number with invalid checksum as unverified and ignores dates as amounts`() {
         val text = """
             Faktura 5/2024 z dnia 12.03.2024
             Konto: 11 1111 1111 1111 1111 1111 1111
@@ -121,7 +121,8 @@ class InvoiceParserTest {
 
         val result = InvoiceParser.parse(text)
 
-        assertNull(result.accountNumber)
+        assertEquals("PL11111111111111111111111111", result.accountNumber)
+        assertFalse(result.accountVerified)
         assertEquals(BigDecimal("10.50"), result.amount)
     }
 
@@ -204,6 +205,91 @@ class InvoiceParserTest {
 
         assertTrue(result.strongInvoiceSignal)
         assertEquals(3, result.amountConfidence)
+    }
+
+    // Układ zeskanowanej faktury, w którym OCR rozdziela kolumnę etykiet i kolumnę wartości.
+    private fun scannedInvoice(account: String) = """
+        Sprzedawca:
+        KDKSYSTEM KSIĘŻAK KRZYSZTOF
+        Adres:
+        NIP:
+        Rachunek:
+        Telefon:
+        PROMIENNA 10 A 05-270 MARKI
+        NIP: 5341363580 Regon: 140994064 BDO: 4
+        $account PKO BP SA ODDZIAŁ 2 W PRUSZKOWIE
+        MARKI, data wystawienia: 24.10.2026
+        Nabywca:
+        Faktura FA 94/10/26
+        Razem: 1 538,00 353,74 1 891,74
+        Należność ogółem: 1 891,74 zł słownie: jeden tysiąc osiemset dziewięćdziesiąt jeden złotych
+        Pozostaje do zapłaty: 1 891,74 zł.
+        Płatność: przelew
+        Termin zapłaty do: 31.10.2026
+    """.trimIndent()
+
+    @Test
+    fun `parses scanned invoice with labels separated from values`() {
+        val result = InvoiceParser.parse(scannedInvoice("42102010550000910201464734"))
+
+        assertEquals("PL42102010550000910201464734", result.accountNumber)
+        assertTrue(result.accountVerified)
+        assertEquals("FA 94/10/26", result.invoiceNumber)
+        assertEquals("KDKSYSTEM KSIĘŻAK KRZYSZTOF", result.sellerName)
+        assertEquals("5341363580", result.sellerNip)
+        assertEquals(BigDecimal("1891.74"), result.amount)
+        assertEquals(LocalDate.of(2026, 10, 31), result.dueDate)
+        assertEquals(LocalDate.of(2026, 10, 24), result.issueDate)
+        assertTrue(result.strongInvoiceSignal)
+        assertFalse(result.marketing)
+    }
+
+    @Test
+    fun `repairs OCR letters in account number far from its label`() {
+        val result = InvoiceParser.parse(scannedInvoice("421O2O1O55OOOO91O2O1464734"))
+
+        assertEquals("PL42102010550000910201464734", result.accountNumber)
+        assertTrue(result.accountVerified)
+    }
+
+    @Test
+    fun `keeps account number with OCR digit error as unverified`() {
+        val result = InvoiceParser.parse(scannedInvoice("42102010550000910201464784"))
+
+        assertEquals("PL42102010550000910201464784", result.accountNumber)
+        assertFalse(result.accountVerified)
+    }
+
+    @Test
+    fun `verified account from another source wins over unverified one`() {
+        val ocr = ParsedInvoice(accountNumber = "PL42102010550000910201464784", accountVerified = false)
+        val body = ParsedInvoice(accountNumber = "PL42102010550000910201464734")
+
+        val merged = ocr.mergeWith(body)
+
+        assertEquals("PL42102010550000910201464734", merged.accountNumber)
+        assertTrue(merged.accountVerified)
+    }
+
+    @Test
+    fun `detects Empik newsletter with consumer credit disclaimer`() {
+        val text = """
+            Jeśli newsletter nie wyświetla się poprawnie, użyj tego linku.
+            Regulamin usług "Empik Premium" znajdziesz tutaj.
+            Akcja "Empik Premium taniej przy zakupach za min. 50 zł w salonie, w tym książki" jest skierowana do klientów.
+            Dla kredytu na zakup towarów i usług z karencją: Rzeczywista Roczna Stopa Oprocentowania (RRSO) 0%;
+            cena towaru 2000 zł; całkowita kwota kredytu 2000 zł; całkowita kwota do zapłaty 2000 zł;
+            całkowity koszt kredytu 0 zł; wysokość 20 równych rat miesięcznych 100 zł.
+            Niniejsza propozycja nie jest ofertą w rozumieniu art. 66 Kodeksu Cywilnego.
+            Nie chcę otrzymywać newslettera.
+            Empik S.A. z siedzibą w Warszawie, NIP: 5260207427, kapitał zakładowy 97 028 362,00 zł, opłacony w całości.
+        """.trimIndent()
+
+        val result = InvoiceParser.parse(text)
+
+        assertTrue(result.marketing)
+        assertFalse(result.strongInvoiceSignal)
+        assertNull(result.accountNumber)
     }
 
     @Test

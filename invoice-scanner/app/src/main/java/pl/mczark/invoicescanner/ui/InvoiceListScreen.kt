@@ -286,7 +286,11 @@ private fun InvoiceRow(invoice: Invoice, onClick: () -> Unit) {
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
-                        if (invoice.accountNumber == null) " brak nr konta" else " brak kwoty",
+                        when {
+                            invoice.accountNumber == null -> " brak nr konta"
+                            !invoice.accountVerified -> " sprawdź nr konta"
+                            else -> " brak kwoty"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )

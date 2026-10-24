@@ -151,7 +151,13 @@ fun InvoiceDetailScreen(
                         "W banku wybierz przelew MPP i podaj kwotę VAT z faktury."
                 )
             }
-            if (!invoice.isComplete) {
+            if (invoice.accountNumber != null && !invoice.accountVerified) {
+                Notice(
+                    "Numer rachunku odczytany ze skanu nie przeszedł weryfikacji – prawdopodobnie jedna cyfra " +
+                        "jest błędna. Porównaj go z fakturą i popraw przyciskiem edycji (ołówek)."
+                )
+            }
+            if (invoice.accountNumber == null || invoice.amount == null) {
                 Notice("Nie udało się odczytać wszystkich danych. Uzupełnij je przyciskiem edycji (ołówek).")
             }
 
@@ -287,7 +293,7 @@ private fun Notice(text: String) {
 @Composable
 private fun TransferQr(invoice: Invoice) {
     val payload = remember(invoice) {
-        invoice.accountNumber?.let {
+        invoice.accountNumber?.takeIf { invoice.accountVerified }?.let {
             TransferQrPayload.build(
                 iban = it,
                 amount = invoice.amountValue,
@@ -425,6 +431,7 @@ private fun EditInvoiceDialog(invoice: Invoice, onDismiss: () -> Unit, onSave: (
                         invoice.copy(
                             recipientName = recipient.trim(),
                             accountNumber = normalizedAccount,
+                            accountVerified = true,
                             amount = parsedAmount?.setScale(2, java.math.RoundingMode.HALF_UP)?.toPlainString(),
                             currency = currency.ifBlank { "PLN" },
                             transferTitle = title.trim(),
