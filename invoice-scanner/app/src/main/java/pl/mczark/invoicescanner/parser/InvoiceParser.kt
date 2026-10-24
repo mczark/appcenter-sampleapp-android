@@ -18,6 +18,13 @@ data class ParsedInvoice(
     val alreadyPaid: Boolean = false,
     /** Czy w tekście występują słowa typowe dla faktury. */
     val looksLikeInvoice: Boolean = false,
+    /**
+     * Czy tekst zawiera wyrażenia, które pojawiają się na fakturach, a nie w reklamach
+     * (np. "faktura nr", "do zapłaty", "termin płatności").
+     */
+    val strongInvoiceSignal: Boolean = false,
+    /** Pewność kwoty: 3 – "do zapłaty", 2 – "razem brutto", 1 – "razem/suma", 0 – brak słowa kluczowego. */
+    val amountConfidence: Int = 0,
 ) {
     /** Im więcej pól udało się znaleźć, tym wyższy wynik. */
     val score: Int
@@ -35,12 +42,14 @@ data class ParsedInvoice(
         sellerNip = sellerNip ?: other.sellerNip,
         accountNumber = accountNumber ?: other.accountNumber,
         amount = amount ?: other.amount,
+        amountConfidence = if (amount == null) other.amountConfidence else amountConfidence,
         currency = if (amount == null) other.currency ?: currency else currency ?: other.currency,
         dueDate = dueDate ?: other.dueDate,
         issueDate = issueDate ?: other.issueDate,
         splitPayment = splitPayment || other.splitPayment,
         alreadyPaid = alreadyPaid || other.alreadyPaid,
         looksLikeInvoice = looksLikeInvoice || other.looksLikeInvoice,
+        strongInvoiceSignal = strongInvoiceSignal || other.strongInvoiceSignal,
     )
 }
 
@@ -53,6 +62,12 @@ object InvoiceParser {
     private val INVOICE_KEYWORDS = listOf(
         "faktura", "faktury", "fakture", "invoice", "rachunek do zaplaty", "nota obciazeniowa",
         "do zaplaty", "termin platnosci", "proforma",
+    )
+
+    private val STRONG_INVOICE_SIGNALS = Regex(
+        "faktur[ay]? (vat|nr|numer|korygujac|proforma|elektroniczn)|(nr|numer) faktury|do zaplaty|" +
+            "termin (platnosci|zaplaty)|(nr|numer) (konta|rachunku)|sprzedawca|nabywca|" +
+            "invoice (no|number|#)|amount due|due date"
     )
 
     // --- Kwoty -------------------------------------------------------------------------------
@@ -80,6 +95,17 @@ object InvoiceParser {
         RegexOption.IGNORE_CASE,
     )
     private val ACCOUNT_KEYWORDS = Regex("konto|konta|rachunek|rachunku|iban|nrb|przelew|wplat|bank|account")
+
+    /**
+     * Luźny zapis numeru konta: dowolne odstępy między cyframi, przeniesienie do kolejnej linii
+     * i typowe pomyłki OCR (O zamiast 0, l zamiast 1 itd.).
+     */
+    private val LOOSE_ACCOUNT_RUN = Regex("[0-9OoDQIl|SB][0-9OoDQIl|SB \\-]{25,90}")
+    private val OCR_DIGITS = mapOf(
+        'O' to '0', 'o' to '0', 'D' to '0', 'Q' to '0',
+        'I' to '1', 'l' to '1', '|' to '1',
+        'S' to '5', 'B' to '8',
+    )
 
     // --- Daty --------------------------------------------------------------------------------
 
@@ -145,6 +171,8 @@ object InvoiceParser {
             splitPayment = SPLIT_PAYMENT.containsMatchIn(foldedAll),
             alreadyPaid = paidByRemainingZero || PAID.containsMatchIn(foldedAll),
             looksLikeInvoice = INVOICE_KEYWORDS.any { foldedAll.contains(it) },
+            strongInvoiceSignal = STRONG_INVOICE_SIGNALS.containsMatchIn(foldedAll),
+            amountConfidence = amount?.priority ?: 0,
         )
     }
 
@@ -220,6 +248,31 @@ object InvoiceParser {
             }.toList()
         }
         return (candidates.firstOrNull { it.nearKeyword } ?: candidates.firstOrNull())?.iban
+            ?: findLooseAccount(lines, folded)
+    }
+
+    /**
+     * Druga próba tylko w okolicy słów "konto", "rachunek" itp.: numer rozbity spacjami co cyfrę,
+     * przeniesiony do kolejnej linii albo przekłamany przez OCR. Fałszywe trafienia odsiewa suma
+     * kontrolna IBAN.
+     */
+    private fun findLooseAccount(lines: List<String>, folded: List<String>): String? {
+        for (i in lines.indices) {
+            if (!ACCOUNT_KEYWORDS.containsMatchIn(folded[i])) continue
+            val region = (i..minOf(i + 2, lines.lastIndex)).joinToString(" ") { lines[it] }
+            for (run in LOOSE_ACCOUNT_RUN.findAll(region)) {
+                if (run.value.count { it.isDigit() } < 16) continue
+                val tokens = run.value.split(' ', '-').filter { it.isNotEmpty() }
+                    .map { token -> token.map { OCR_DIGITS[it] ?: it }.joinToString("") }
+                // Numer może zaczynać się od dowolnego "słowa" ciągu – przed nim bywają inne liczby.
+                for (start in tokens.indices) {
+                    val digits = tokens.drop(start).joinToString("")
+                    if (digits.length < 26) break
+                    Iban.normalize(digits.take(26))?.let { return it }
+                }
+            }
+        }
+        return null
     }
 
     /** Dopasowanie bywa zachłanne (np. doklejony rok po numerze), więc próbujemy też samego prefiksu. */

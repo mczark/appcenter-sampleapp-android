@@ -30,6 +30,10 @@ data class Invoice(
     val splitPayment: Boolean = false,
     val status: PaymentStatus = PaymentStatus.TO_PAY,
     val editedByUser: Boolean = false,
+    /** Tekst, z którego odczytano dane (do podglądu i zgłaszania błędów odczytu). */
+    val sourceText: String? = null,
+    /** Wersja reguł analizy, którymi przetworzono wiadomość; starsze są analizowane ponownie. */
+    val analysisVersion: Int = 1,
 ) {
     val amountValue: BigDecimal? get() = amount?.toBigDecimalOrNull()
     val dueDateValue: LocalDate? get() = dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }

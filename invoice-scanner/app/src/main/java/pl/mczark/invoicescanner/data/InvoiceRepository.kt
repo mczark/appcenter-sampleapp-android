@@ -20,7 +20,11 @@ class InvoiceRepository(context: Context) {
         val invoices: List<Invoice> = emptyList(),
         /** Wiadomości już przeanalizowane, w których nie było faktury. */
         val skippedMessageIds: Set<String> = emptySet(),
+        /** Faktury usunięte przez użytkownika – nie wracają przy kolejnych skanowaniach. */
+        val deletedMessageIds: Set<String> = emptySet(),
         val accountEmail: String? = null,
+        /** Wersja reguł analizy, której dotyczy [skippedMessageIds]. */
+        val analysisVersion: Int = 1,
     )
 
     private val file = File(context.filesDir, "invoices.json")
@@ -34,8 +38,33 @@ class InvoiceRepository(context: Context) {
     private val _accountEmail = MutableStateFlow(store.value.accountEmail)
     val accountEmail: StateFlow<String?> = _accountEmail.asStateFlow()
 
-    fun isKnown(messageId: String): Boolean =
-        store.value.invoices.any { it.messageId == messageId } || messageId in store.value.skippedMessageIds
+    /** Czy wiadomość była już przeanalizowana bieżącą wersją reguł (albo jej wynik poprawił użytkownik). */
+    fun isKnown(messageId: String, analysisVersion: Int): Boolean {
+        val s = store.value
+        if (messageId in s.deletedMessageIds) return true
+        val invoice = s.invoices.firstOrNull { it.messageId == messageId }
+        if (invoice != null) return invoice.editedByUser || invoice.analysisVersion >= analysisVersion
+        return messageId in s.skippedMessageIds && s.analysisVersion >= analysisVersion
+    }
+
+    fun staleInvoiceIds(analysisVersion: Int): List<String> =
+        store.value.invoices.filter { !it.editedByUser && it.analysisVersion < analysisVersion }.map { it.messageId }
+
+    fun invoice(messageId: String): Invoice? = store.value.invoices.firstOrNull { it.messageId == messageId }
+
+    /** Po zmianie reguł analizy wiadomości odrzucone wcześniej zostaną sprawdzone jeszcze raz. */
+    suspend fun startAnalysisVersion(analysisVersion: Int) = update { s ->
+        if (s.analysisVersion >= analysisVersion) s
+        else s.copy(skippedMessageIds = emptySet(), analysisVersion = analysisVersion)
+    }
+
+    /** Wiadomość, która po ponownej analizie okazała się nie być fakturą. */
+    suspend fun removeAndSkip(messageId: String) = update { s ->
+        s.copy(
+            invoices = s.invoices.filterNot { it.messageId == messageId },
+            skippedMessageIds = s.skippedMessageIds + messageId,
+        )
+    }
 
     suspend fun addInvoice(invoice: Invoice) = update { s ->
         s.copy(invoices = s.invoices.filterNot { it.messageId == invoice.messageId } + invoice)
@@ -52,7 +81,7 @@ class InvoiceRepository(context: Context) {
     suspend fun delete(messageId: String) = update { s ->
         s.copy(
             invoices = s.invoices.filterNot { it.messageId == messageId },
-            skippedMessageIds = s.skippedMessageIds + messageId,
+            deletedMessageIds = s.deletedMessageIds + messageId,
         )
     }
 

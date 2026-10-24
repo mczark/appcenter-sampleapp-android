@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -180,6 +181,10 @@ fun InvoiceDetailScreen(
             }
 
             EmailDetails(invoice, onOpenGmail = { openInGmail(context, invoice.messageId) })
+
+            invoice.sourceText?.let { text ->
+                SourceText(text, onCopy = { copy("odczytany tekst", text) })
+            }
         }
     }
 
@@ -325,6 +330,31 @@ private fun EmailDetails(invoice: Invoice, onOpenGmail: () -> Unit) {
             if (invoice.editedByUser) Text("Dane poprawione ręcznie", color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(4.dp))
             OutlinedButton(onClick = onOpenGmail) { Text("Otwórz wiadomość w Gmailu") }
+        }
+    }
+}
+
+/** Tekst, z którego aplikacja odczytała dane – pomaga sprawdzić, dlaczego jakieś pole jest puste. */
+@Composable
+private fun SourceText(text: String, onCopy: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Card {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Odczytany tekst", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Jeśli jakieś pole się nie odczytało, sprawdź, czy jest w tym tekście.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Ukryj" else "Pokaż") }
+                TextButton(onClick = onCopy) { Text("Kopiuj") }
+            }
+            if (expanded) {
+                SelectionContainer {
+                    Text(text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
+            }
         }
     }
 }

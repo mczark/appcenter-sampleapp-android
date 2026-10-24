@@ -139,6 +139,74 @@ class InvoiceParserTest {
     }
 
     @Test
+    fun `finds account number split across lines`() {
+        val text = """
+            Faktura VAT 15/10/2026
+            Numer rachunku: 61 1090 1014 0000
+            0712 1981 2874
+            Do zapłaty: 99,00 zł
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `finds account number with spaces between every digit`() {
+        val text = """
+            Faktura 3/2026
+            Konto bankowe:
+            6 1 1 0 9 0 1 0 1 4 0 0 0 0 0 7 1 2 1 9 8 1 2 8 7 4
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `repairs typical OCR mistakes in account number`() {
+        val text = """
+            Faktura 4/2026
+            Nr konta: 61 1O9O 1014 OOOO 0712 l981 2874
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `finds account number preceded by other numbers in the same line`() {
+        val text = """
+            Faktura 5/2026
+            Rachunek bankowy (mBank) 2026 61109010140000071219812874
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `marketing email has no strong invoice signal`() {
+        val text = """
+            Nowości tygodnia w Empiku!
+            Książka "Przykład" teraz 39,99 zł
+            Zestaw klocków 199,99 zł
+            Zamówienia powyżej 49 zł z darmową dostawą. Fakturę pobierzesz w swoim koncie.
+        """.trimIndent()
+
+        val result = InvoiceParser.parse(text)
+
+        assertTrue(result.looksLikeInvoice)
+        assertFalse(result.strongInvoiceSignal)
+        assertEquals(0, result.amountConfidence)
+        assertNull(result.accountNumber)
+    }
+
+    @Test
+    fun `real invoice has strong signal and confident amount`() {
+        val result = InvoiceParser.parse("Faktura VAT nr 1/2026\nDo zapłaty: 10,00 zł")
+
+        assertTrue(result.strongInvoiceSignal)
+        assertEquals(3, result.amountConfidence)
+    }
+
+    @Test
     fun `converts html email to text`() {
         val html = "<html><head><style>p{}</style></head><body><p>Faktura nr&nbsp;A/1/2024</p>" +
             "<table><tr><td>Do zap&#322;aty:</td><td>15,00 z&#322;</td></tr></table></body></html>"

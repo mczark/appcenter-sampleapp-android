@@ -20,6 +20,12 @@ odczytuje je (PDF, skany, zdjęcia, treść maila) i pokazuje gotowe dane do prz
 - **Dane do przelewu**: kopiowanie pojedynczych pól lub całości, udostępnianie, **kod QR w standardzie
   Związku Banków Polskich** do zeskanowania w aplikacji banku, ręczna poprawa odczytanych danych.
 - Lista „Do zapłaty” / „Opłacone”, suma do zapłaty, wyróżnienie faktur po terminie.
+- **Filtr reklam**: pomijane są maile z kategorii „Oferty” i „Społeczności” oraz newslettery bez faktury
+  w załączniku i bez numeru konta. Wiadomość musi zawierać wyraźne cechy faktury („faktura nr”,
+  „do zapłaty”, „termin płatności”…) i numer konta albo kwotę do zapłaty.
+- **Podgląd odczytanego tekstu** na ekranie szczegółów – pozwala sprawdzić, dlaczego jakieś pole jest puste.
+  Po zmianie reguł odczytu zapisane faktury są automatycznie analizowane ponownie przy następnym skanowaniu
+  (z zachowaniem ręcznych poprawek i oznaczenia „opłacona”).
 
 Wszystkie dane zostają na telefonie (lokalny plik JSON). Aplikacja niczego nie wysyła poza
 zapytaniami do Gmail API.
