@@ -1,0 +1,57 @@
+name: Invoice Scanner
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "invoice-scanner/**"
+      - ".github/workflows/invoice-scanner.yml"
+  pull_request:
+    paths:
+      - "invoice-scanner/**"
+      - ".github/workflows/invoice-scanner.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: invoice-scanner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: invoice-scanner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-scanner-debug-apk
+          path: invoice-scanner/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-scanner-test-reports
+          path: invoice-scanner/app/build/reports/tests/
+          if-no-files-found: ignore
