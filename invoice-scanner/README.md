@@ -57,6 +57,9 @@ cd invoice-scanner
 
 Możesz też otworzyć katalog `invoice-scanner` w Android Studio i uruchomić konfigurację `app`.
 
+GitHub Actions (`.github/workflows/invoice-scanner.yml`) przy każdej zmianie w tym katalogu uruchamia
+testy jednostkowe i buduje APK debug, dostępny do pobrania jako artefakt `invoice-scanner-debug-apk`.
+
 ## Struktura
 
 ```
