@@ -60,6 +60,41 @@ Możesz też otworzyć katalog `invoice-scanner` w Android Studio i uruchomić k
 GitHub Actions (`.github/workflows/invoice-scanner.yml`) przy każdej zmianie w tym katalogu uruchamia
 testy jednostkowe i buduje APK debug, dostępny do pobrania jako artefakt `invoice-scanner-debug-apk`.
 
+## Podpisany build release (GitHub Actions)
+
+Po każdym pushu do `master` (oraz po uruchomieniu ręcznym) workflow buduje podpisany APK i App Bundle
+(`.aab`) i udostępnia je jako artefakt `invoice-scanner-release`. Wypchnięcie tagu
+`invoice-scanner-v<wersja>` (np. `invoice-scanner-v1.0.0`) dodatkowo tworzy GitHub Release z tymi plikami.
+Pull requesty nie mają dostępu do klucza, więc budują release bez podpisu.
+
+Jednorazowa konfiguracja:
+
+1. Wygeneruj klucz (przechowuj go bezpiecznie – bez niego nie wydasz aktualizacji aplikacji):
+   ```bash
+   keytool -genkeypair -v -keystore release.jks -alias invoice-scanner \
+     -keyalg RSA -keysize 4096 -validity 10000
+   ```
+2. W repozytorium: **Settings → Secrets and variables → Actions → New repository secret** dodaj:
+   | Sekret | Wartość |
+   |---|---|
+   | `RELEASE_KEYSTORE_BASE64` | wynik `base64 -w0 release.jks` (macOS: `base64 -i release.jks`) |
+   | `RELEASE_KEYSTORE_PASSWORD` | hasło do keystore |
+   | `RELEASE_KEY_ALIAS` | alias klucza (np. `invoice-scanner`) |
+   | `RELEASE_KEY_PASSWORD` | hasło do klucza |
+3. Dodaj SHA-1 klucza release jako **osobny klient OAuth typu Android** w Google Cloud (patrz wyżej),
+   inaczej logowanie do Gmaila w wersji release nie zadziała:
+   ```bash
+   keytool -list -v -keystore release.jks -alias invoice-scanner
+   ```
+
+Bez sekretów zadanie release kończy się ostrzeżeniem i nie podpisuje aplikacji. Lokalnie podpisany
+release zbudujesz, ustawiając te same zmienne (`RELEASE_KEYSTORE_FILE` wskazuje plik `.jks`):
+
+```bash
+RELEASE_KEYSTORE_FILE=$PWD/release.jks RELEASE_KEYSTORE_PASSWORD=... \
+RELEASE_KEY_ALIAS=invoice-scanner RELEASE_KEY_PASSWORD=... ./gradlew assembleRelease
+```
+
 ## Struktura
 
 ```
