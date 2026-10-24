@@ -1,0 +1,89 @@
+# Jednorazowe utworzenie klucza podpisu aplikacji Faktury z Gmaila – bez komputera.
+# Generuje keystore z losowym hasłem, zapisuje sekrety RELEASE_* w repozytorium i udostępnia
+# kopię zapasową klucza jako zaszyfrowany (AES-256) plik ZIP. Instrukcja: invoice-scanner/README.md.
+name: Invoice Scanner – signing key setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Generate signing key
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.SIGNING_SETUP_TOKEN }}
+      BACKUP_PASSPHRASE: ${{ secrets.SIGNING_BACKUP_PASSPHRASE }}
+      EXISTING_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check prerequisites
+        run: |
+          if [ -n "$EXISTING_KEYSTORE" ]; then
+            echo "::error::Sekret RELEASE_KEYSTORE_BASE64 już istnieje – nie nadpisuję istniejącego klucza."
+            exit 1
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Brak sekretu SIGNING_SETUP_TOKEN (token z uprawnieniem Secrets: read and write)."
+            exit 1
+          fi
+          if [ "${#BACKUP_PASSPHRASE}" -lt 12 ]; then
+            echo "::error::Sekret SIGNING_BACKUP_PASSPHRASE musi mieć co najmniej 12 znaków."
+            exit 1
+          fi
+
+      - name: Generate keystore and store secrets
+        run: |
+          command -v 7z > /dev/null || sudo apt-get install -y p7zip-full > /dev/null
+          umask 077
+          work="$RUNNER_TEMP/signing"
+          mkdir -p "$work"
+          cd "$work"
+
+          pass=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 32)
+          echo "::add-mask::$pass"
+
+          keytool -genkeypair -keystore release.jks -storetype PKCS12 -alias invoice-scanner \
+            -keyalg RSA -keysize 4096 -validity 10000 \
+            -storepass "$pass" -keypass "$pass" -dname "CN=Faktury z Gmaila"
+
+          base64 -w0 release.jks | gh secret set RELEASE_KEYSTORE_BASE64 -R "$REPO"
+          printf %s "$pass" | gh secret set RELEASE_KEYSTORE_PASSWORD -R "$REPO"
+          printf %s "$pass" | gh secret set RELEASE_KEY_PASSWORD -R "$REPO"
+          printf %s invoice-scanner | gh secret set RELEASE_KEY_ALIAS -R "$REPO"
+
+          sha1=$(keytool -list -v -keystore release.jks -storepass "$pass" -alias invoice-scanner \
+            | awk '/SHA1:/ { print $2 }')
+          {
+            echo "Klucz podpisu aplikacji Faktury z Gmaila"
+            echo "Alias: invoice-scanner"
+            echo "Hasło keystore i klucza: $pass"
+            echo "SHA-1: $sha1"
+          } > INFO.txt
+          7z a -tzip -mem=AES256 -p"$BACKUP_PASSPHRASE" "$RUNNER_TEMP/release-key-backup.zip" \
+            release.jks INFO.txt > /dev/null
+
+          {
+            echo "### Klucz podpisu utworzony"
+            echo ""
+            echo "Ustawiono sekrety: RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD."
+            echo ""
+            echo "SHA-1 do klienta OAuth (Android) w Google Cloud: \`$sha1\`"
+            echo ""
+            echo "Pobierz artefakt **release-key-backup** (zaszyfrowany hasłem z SIGNING_BACKUP_PASSPHRASE),"
+            echo "zapisz go w bezpiecznym miejscu, a potem usuń ten przebieg lub artefakt."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          rm -rf "$work"
+
+      - name: Upload encrypted key backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-key-backup
+          path: ${{ runner.temp }}/release-key-backup.zip
+          retention-days: 1
+          if-no-files-found: error

@@ -67,7 +67,25 @@ Po każdym pushu do `master` (oraz po uruchomieniu ręcznym) workflow buduje pod
 `invoice-scanner-v<wersja>` (np. `invoice-scanner-v1.0.0`) dodatkowo tworzy GitHub Release z tymi plikami.
 Pull requesty nie mają dostępu do klucza, więc budują release bez podpisu.
 
-Jednorazowa konfiguracja:
+Jednorazowa konfiguracja – **wariant bez komputera** (wszystko w przeglądarce na telefonie):
+
+1. Utwórz token: GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+   Generate new token**. Repository access: tylko to repozytorium; Permissions → Repository → **Secrets:
+   Read and write**. Ważność: 1 dzień.
+2. W repozytorium: **Settings → Secrets and variables → Actions → New repository secret** dodaj:
+   - `SIGNING_SETUP_TOKEN` – token z punktu 1,
+   - `SIGNING_BACKUP_PASSPHRASE` – wymyślone przez Ciebie hasło (min. 12 znaków) do kopii zapasowej klucza.
+     **Zapamiętaj je** – bez niego nie otworzysz kopii.
+3. **Actions → Invoice Scanner – signing key setup → Run workflow**. Workflow wygeneruje klucz z losowym
+   hasłem, ustawi cztery sekrety `RELEASE_*` i pokaże SHA-1 w podsumowaniu przebiegu. Nie nadpisze
+   istniejącego klucza.
+4. Pobierz artefakt **release-key-backup** (ZIP zaszyfrowany AES-256 Twoim hasłem; jest w nim keystore,
+   jego hasło i SHA-1) i zapisz go w bezpiecznym miejscu, np. na Dysku Google. Artefakt jest usuwany po
+   1 dniu. Repozytorium jest publiczne, dlatego kopia jest zaszyfrowana.
+5. Usuń sekrety `SIGNING_SETUP_TOKEN` i `SIGNING_BACKUP_PASSPHRASE` oraz sam token – nie są już potrzebne.
+6. Dodaj SHA-1 jako osobnego klienta OAuth typu Android w Google Cloud (patrz wyżej).
+
+Jednorazowa konfiguracja – **wariant z komputerem**:
 
 1. Wygeneruj klucz (przechowuj go bezpiecznie – bez niego nie wydasz aktualizacji aplikacji):
    ```bash
