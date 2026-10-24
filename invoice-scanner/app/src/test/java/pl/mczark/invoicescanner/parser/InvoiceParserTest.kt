@@ -293,6 +293,33 @@ class InvoiceParserTest {
     }
 
     @Test
+    fun `order confirmation without the word invoice is not an invoice and is already paid`() {
+        val text = """
+            Szczegóły zamówienia ZN411806/26
+            Grzebienie dolnego kosza pasuje do zmywarki Siemens SN66N080EU/18
+            632-UK-0167
+            Towar gotowy do wysyłki.
+            1 szt. 183,00 zł
+            InPost Paczkomat 24/7 (przedpłata) 13,99 zł
+            Zapłacono: 196,99 zł
+            Twoje zakupy realizowane z InPostPay
+        """.trimIndent()
+
+        val result = InvoiceParser.parse(text)
+
+        assertFalse(result.looksLikeInvoice)
+        assertTrue(result.alreadyPaid)
+    }
+
+    @Test
+    fun `recognises the word invoice in other languages`() {
+        listOf("Rechnung Nr. 4711", "Factura 12/2026", "Facture n° 15", "Fattura 3", "Fakturę wysłaliśmy", "INVOICE #9")
+            .forEach { assertTrue(it, InvoiceParser.looksLikeInvoice(it)) }
+        listOf("Potwierdzenie zamówienia", "Numer rachunku: 61 1090", "Do zapłaty 10 zł")
+            .forEach { assertFalse(it, InvoiceParser.looksLikeInvoice(it)) }
+    }
+
+    @Test
     fun `converts html email to text`() {
         val html = "<html><head><style>p{}</style></head><body><p>Faktura nr&nbsp;A/1/2024</p>" +
             "<table><tr><td>Do zap&#322;aty:</td><td>15,00 z&#322;</td></tr></table></body></html>"

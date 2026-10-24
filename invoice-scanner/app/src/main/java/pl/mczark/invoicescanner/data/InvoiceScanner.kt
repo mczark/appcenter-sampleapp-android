@@ -137,7 +137,8 @@ class InvoiceScanner(
     private class Source(val name: String, val text: String, val parsed: ParsedInvoice, val isAttachment: Boolean)
 
     /**
-     * Odróżnia faktury od reklam i newsletterów, które też zawierają słowo "faktura" i ceny:
+     * Odróżnia faktury od potwierdzeń zamówień, reklam i newsletterów:
+     * - w temacie, treści lub załączniku musi wystąpić słowo "faktura" (w dowolnym obsługiwanym języku),
      * - musi być wyraźny sygnał faktury (załącznik-faktura, "faktura nr", "do zapłaty", temat maila),
      * - musi być numer konta albo kwota przy słowie "do zapłaty" / "razem brutto",
      * - newsletter (nagłówek List-Unsubscribe, stopka "wypisz się", reklama kredytu z RRSO) bez faktury
@@ -149,6 +150,8 @@ class InvoiceScanner(
         sources: List<Source>,
         merged: ParsedInvoice,
     ): Boolean {
+        val hasInvoiceWord = sources.any { it.parsed.looksLikeInvoice } || InvoiceParser.looksLikeInvoice(subject)
+        if (!hasInvoiceWord) return false
         val invoiceAttachment = sources.any { it.isAttachment && it.parsed.looksLikeInvoice }
         val strongSignal = invoiceAttachment || merged.strongInvoiceSignal || InvoiceParser.looksLikeInvoice(subject)
         val confidentAmount = merged.amountConfidence >= 2 ||
@@ -172,7 +175,7 @@ class InvoiceScanner(
         private const val TAG = "InvoiceScanner"
         const val DEFAULT_DAYS_BACK = 90
         /** Zwiększ po zmianie reguł analizy – zapisane wyniki zostaną przeliczone przy skanowaniu. */
-        const val ANALYSIS_VERSION = 3
+        const val ANALYSIS_VERSION = 4
         private const val MAX_SOURCE_TEXT_CHARS = 30_000
         private const val MAX_MESSAGES = 200
         private const val MIN_PLAIN_TEXT_CHARS = 200
@@ -181,7 +184,7 @@ class InvoiceScanner(
 
         fun buildQuery(daysBack: Int): String =
             "newer_than:${daysBack}d -in:sent -in:drafts -in:chats -category:promotions -category:social " +
-                "(faktura OR faktury OR fakturę OR fv OR invoice OR rachunek OR \"do zapłaty\" " +
-                "OR \"termin płatności\" OR \"e-faktura\" OR proforma)"
+                "(faktura OR faktury OR fakturę OR fakturą OR fakturze OR fv OR invoice OR rechnung OR factura " +
+                "OR facture OR fattura OR rachunek OR \"do zapłaty\" OR \"termin płatności\" OR \"e-faktura\" OR proforma)"
     }
 }

@@ -20,6 +20,9 @@ odczytuje je (PDF, skany, zdjęcia, treść maila) i pokazuje gotowe dane do prz
 - **Dane do przelewu**: kopiowanie pojedynczych pól lub całości, udostępnianie, **kod QR w standardzie
   Związku Banków Polskich** do zeskanowania w aplikacji banku, ręczna poprawa odczytanych danych.
 - Lista „Do zapłaty” / „Opłacone”, suma do zapłaty, wyróżnienie faktur po terminie.
+- **Wymagane słowo „faktura”** (w dowolnej formie; także invoice, Rechnung, factura, facture, fattura i in.)
+  w temacie, treści lub załączniku – potwierdzenia zamówień bez faktury są pomijane. Kwota „Zapłacono: …”
+  bez kwoty do zapłaty oznacza dokument już opłacony.
 - **Filtr reklam**: pomijane są maile z kategorii „Oferty” i „Społeczności” oraz newslettery bez faktury
   w załączniku i bez numeru konta. Wiadomość musi zawierać wyraźne cechy faktury („faktura nr”,
   „do zapłaty”, „termin płatności”…) i numer konta albo kwotę do zapłaty.

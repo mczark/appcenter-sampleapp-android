@@ -21,7 +21,7 @@ data class ParsedInvoice(
     val issueDate: LocalDate? = null,
     val splitPayment: Boolean = false,
     val alreadyPaid: Boolean = false,
-    /** Czy w tekście występują słowa typowe dla faktury. */
+    /** Czy w tekście występuje słowo "faktura" (w dowolnym obsługiwanym języku). */
     val looksLikeInvoice: Boolean = false,
     /**
      * Czy tekst zawiera wyrażenia, które pojawiają się na fakturach, a nie w reklamach
@@ -71,10 +71,16 @@ data class ParsedInvoice(
  */
 object InvoiceParser {
 
-    private val INVOICE_KEYWORDS = listOf(
-        "faktura", "faktury", "fakture", "invoice", "rachunek do zaplaty", "nota obciazeniowa",
-        "do zaplaty", "termin platnosci", "proforma",
+    /**
+     * Słowo "faktura" w dowolnej formie i w popularnych językach (pl/cs/sk/de/en/es/fr/it/nl/pt/tr/hu/fi
+     * i skandynawskie). Bez niego wiadomość nie jest traktowana jako faktura – potwierdzenia zamówień,
+     * rachunki za usługi bez faktury i reklamy odpadają.
+     */
+    private val INVOICE_WORD = Regex(
+        "\\b(faktur\\w*|faktúr\\w*|invoice\\w*|rechnung\\w*|factur\\w*|fattur\\w*|factuur\\w*|fatura\\w*|" +
+            "szamla\\w*|számla\\w*|lasku\\w*|proforma)\\b"
     )
+    private val PAID_AMOUNT = Regex("zaplacono\\s*:?\\s*(\\d[\\d .,]*)")
 
     private val STRONG_INVOICE_SIGNALS = Regex(
         "faktur[ay]? (vat|nr|numer|korygujac|proforma|elektroniczn)|(nr|numer) faktury|" +
@@ -179,6 +185,9 @@ object InvoiceParser {
 
         val account = findAccount(lines, folded)
         val paidByRemainingZero = amount?.let { it.priority == 3 && it.value.signum() == 0 } == true
+        // "Zapłacono: 196,99 zł" bez kwoty "do zapłaty" – np. zamówienie opłacone online.
+        val paidInFull = (amount == null || amount.priority < 3) &&
+            PAID_AMOUNT.findAll(foldedAll).any { m -> m.groupValues[1].any { it in '1'..'9' } }
 
         return ParsedInvoice(
             invoiceNumber = findInvoiceNumber(lines),
@@ -191,8 +200,8 @@ object InvoiceParser {
             dueDate = dueDate,
             issueDate = issueDate,
             splitPayment = SPLIT_PAYMENT.containsMatchIn(foldedAll),
-            alreadyPaid = paidByRemainingZero || PAID.containsMatchIn(foldedAll),
-            looksLikeInvoice = INVOICE_KEYWORDS.any { foldedAll.contains(it) },
+            alreadyPaid = paidByRemainingZero || paidInFull || PAID.containsMatchIn(foldedAll),
+            looksLikeInvoice = INVOICE_WORD.containsMatchIn(foldedAll),
             strongInvoiceSignal = STRONG_INVOICE_SIGNALS.containsMatchIn(foldedAll),
             marketing = MARKETING_SIGNALS.containsMatchIn(foldedAll),
             amountConfidence = amount?.priority ?: 0,
@@ -201,7 +210,7 @@ object InvoiceParser {
 
     fun looksLikeInvoice(text: String): Boolean {
         val folded = TextUtils.fold(text)
-        return INVOICE_KEYWORDS.any { folded.contains(it) }
+        return INVOICE_WORD.containsMatchIn(folded)
     }
 
     // ------------------------------------------------------------------------------------------
