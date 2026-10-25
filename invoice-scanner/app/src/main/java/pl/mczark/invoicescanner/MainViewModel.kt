@@ -145,7 +145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun messageShown() = scanState.update { it.copy(message = null) }
 
     fun setStatus(invoice: Invoice, status: PaymentStatus) = viewModelScope.launch {
-        repository.updateInvoice(invoice.copy(status = status))
+        repository.setStatus(invoice.messageId, status)
     }
 
     fun save(invoice: Invoice) = viewModelScope.launch {
