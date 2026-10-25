@@ -24,6 +24,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +67,7 @@ fun InvoiceListScreen(
     onOpen: (Invoice) -> Unit,
     onClearAll: () -> Unit,
     onMessageShown: () -> Unit,
+    onDailyCheckChange: (Boolean) -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
@@ -100,6 +102,19 @@ fun InvoiceListScreen(
                                 Icon(Icons.Filled.MoreVert, contentDescription = "Więcej")
                             }
                             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Codzienne sprawdzanie")
+                                            Text(
+                                                "ok. 8:00, powiadomienie o nowej fakturze",
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                    },
+                                    trailingIcon = { Checkbox(checked = state.dailyCheckEnabled, onCheckedChange = null) },
+                                    onClick = { onDailyCheckChange(!state.dailyCheckEnabled) },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Wyczyść zapisane dane") },
                                     onClick = {
@@ -286,7 +301,11 @@ private fun InvoiceRow(invoice: Invoice, onClick: () -> Unit) {
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
-                        if (invoice.accountNumber == null) " brak nr konta" else " brak kwoty",
+                        when {
+                            invoice.accountNumber == null -> " brak nr konta"
+                            !invoice.accountVerified -> " sprawdź nr konta"
+                            else -> " brak kwoty"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )

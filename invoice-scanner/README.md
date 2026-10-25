@@ -19,7 +19,22 @@ odczytuje je (PDF, skany, zdjęcia, treść maila) i pokazuje gotowe dane do prz
   (także „14 dni” od daty wystawienia), oznaczenie MPP (podzielona płatność), faktury już opłacone.
 - **Dane do przelewu**: kopiowanie pojedynczych pól lub całości, udostępnianie, **kod QR w standardzie
   Związku Banków Polskich** do zeskanowania w aplikacji banku, ręczna poprawa odczytanych danych.
+- **Codzienne sprawdzanie w tle** (WorkManager, ok. 8:00, tylko z dostępem do sieci) i **powiadomienie**
+  o nowych fakturach do opłacenia; kliknięcie otwiera fakturę. Włączane/wyłączane w menu (⋮). Na Androidzie 13+
+  aplikacja poprosi o zgodę na powiadomienia. Jeśli Google cofnie dostęp do Gmaila, pojawi się powiadomienie
+  z prośbą o ponowne połączenie konta w aplikacji.
 - Lista „Do zapłaty” / „Opłacone”, suma do zapłaty, wyróżnienie faktur po terminie.
+- **Wymagane słowo „faktura”** (w dowolnej formie; także invoice, Rechnung, factura, facture, fattura i in.)
+  w temacie, treści lub załączniku – potwierdzenia zamówień bez faktury są pomijane. Kwota „Zapłacono: …”
+  bez kwoty do zapłaty oznacza dokument już opłacony.
+- **Filtr reklam**: pomijane są maile z kategorii „Oferty” i „Społeczności” oraz newslettery bez faktury
+  w załączniku i bez numeru konta. Wiadomość musi zawierać wyraźne cechy faktury („faktura nr”,
+  „do zapłaty”, „termin płatności”…) i numer konta albo kwotę do zapłaty.
+- **Numer konta ze skanu z błędną sumą kontrolną** (pomyłka OCR w jednej cyfrze) jest pokazywany z ostrzeżeniem
+  „sprawdź nr konta” – bez kodu QR, do porównania z fakturą i poprawienia.
+- **Podgląd odczytanego tekstu** na ekranie szczegółów – pozwala sprawdzić, dlaczego jakieś pole jest puste.
+  Po zmianie reguł odczytu zapisane faktury są automatycznie analizowane ponownie przy następnym skanowaniu
+  (z zachowaniem ręcznych poprawek i oznaczenia „opłacona”).
 
 Wszystkie dane zostają na telefonie (lokalny plik JSON). Aplikacja niczego nie wysyła poza
 zapytaniami do Gmail API.

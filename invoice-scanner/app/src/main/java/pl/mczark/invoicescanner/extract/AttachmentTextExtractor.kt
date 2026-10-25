@@ -49,14 +49,22 @@ class AttachmentTextExtractor(private val context: Context) {
             File.createTempFile("invoice", ".pdf", context.cacheDir).apply { writeBytes(bytes) }
         }
         return try {
-            val pages = withContext(Dispatchers.IO) { renderPages(file) }
-            pages.map { bitmap ->
-                try {
-                    recognize(bitmap)
-                } finally {
-                    bitmap.recycle()
+            // Strony renderujemy i rozpoznajemy po jednej – bitmapa w wysokiej rozdzielczości
+            // zajmuje kilkanaście MB, więc nie trzymamy kilku naraz.
+            withContext(Dispatchers.IO) {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                    PdfRenderer(descriptor).use { renderer ->
+                        (0 until minOf(renderer.pageCount, MAX_OCR_PAGES)).map { index ->
+                            val bitmap = renderer.openPage(index).use(::renderPage)
+                            try {
+                                recognize(bitmap)
+                            } finally {
+                                bitmap.recycle()
+                            }
+                        }.joinToString("\n")
+                    }
                 }
-            }.joinToString("\n")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "OCR PDF nie powiódł się", e)
             ""
@@ -65,24 +73,17 @@ class AttachmentTextExtractor(private val context: Context) {
         }
     }
 
-    private fun renderPages(file: File): List<Bitmap> =
-        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-            PdfRenderer(descriptor).use { renderer ->
-                (0 until minOf(renderer.pageCount, MAX_OCR_PAGES)).map { index ->
-                    renderer.openPage(index).use { page ->
-                        val scale = minOf(OCR_SCALE, MAX_BITMAP_SIDE.toFloat() / maxOf(page.width, page.height))
-                        val bitmap = Bitmap.createBitmap(
-                            (page.width * scale).toInt(),
-                            (page.height * scale).toInt(),
-                            Bitmap.Config.ARGB_8888,
-                        )
-                        bitmap.eraseColor(Color.WHITE)
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        bitmap
-                    }
-                }
-            }
-        }
+    private fun renderPage(page: PdfRenderer.Page): Bitmap {
+        val scale = minOf(OCR_SCALE, MAX_BITMAP_SIDE.toFloat() / maxOf(page.width, page.height))
+        val bitmap = Bitmap.createBitmap(
+            (page.width * scale).toInt(),
+            (page.height * scale).toInt(),
+            Bitmap.Config.ARGB_8888,
+        )
+        bitmap.eraseColor(Color.WHITE)
+        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        return bitmap
+    }
 
     private suspend fun extractImage(bytes: ByteArray): String {
         val bitmap = withContext(Dispatchers.IO) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
@@ -106,8 +107,9 @@ class AttachmentTextExtractor(private val context: Context) {
         private const val TAG = "AttachmentExtractor"
         private const val MIN_TEXT_CHARS = 60
         private const val MAX_OCR_PAGES = 3
-        private const val OCR_SCALE = 2f
-        private const val MAX_BITMAP_SIDE = 2400
+        // Drobny druk skanu (np. 26 cyfr numeru konta) wymaga ok. 300 DPI, żeby OCR nie mylił cyfr.
+        private const val OCR_SCALE = 4f
+        private const val MAX_BITMAP_SIDE = 3600
 
         fun kindOf(mimeType: String?, filename: String?): Kind {
             val mime = mimeType.orEmpty().lowercase()

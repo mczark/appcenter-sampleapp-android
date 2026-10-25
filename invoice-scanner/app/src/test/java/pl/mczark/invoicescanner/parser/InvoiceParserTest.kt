@@ -112,7 +112,7 @@ class InvoiceParserTest {
     }
 
     @Test
-    fun `ignores invalid account numbers and dates as amounts`() {
+    fun `marks account number with invalid checksum as unverified and ignores dates as amounts`() {
         val text = """
             Faktura 5/2024 z dnia 12.03.2024
             Konto: 11 1111 1111 1111 1111 1111 1111
@@ -121,7 +121,8 @@ class InvoiceParserTest {
 
         val result = InvoiceParser.parse(text)
 
-        assertNull(result.accountNumber)
+        assertEquals("PL11111111111111111111111111", result.accountNumber)
+        assertFalse(result.accountVerified)
         assertEquals(BigDecimal("10.50"), result.amount)
     }
 
@@ -136,6 +137,186 @@ class InvoiceParserTest {
         """.trimIndent()
 
         assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `finds account number split across lines`() {
+        val text = """
+            Faktura VAT 15/10/2026
+            Numer rachunku: 61 1090 1014 0000
+            0712 1981 2874
+            Do zapłaty: 99,00 zł
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `finds account number with spaces between every digit`() {
+        val text = """
+            Faktura 3/2026
+            Konto bankowe:
+            6 1 1 0 9 0 1 0 1 4 0 0 0 0 0 7 1 2 1 9 8 1 2 8 7 4
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `repairs typical OCR mistakes in account number`() {
+        val text = """
+            Faktura 4/2026
+            Nr konta: 61 1O9O 1014 OOOO 0712 l981 2874
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `finds account number preceded by other numbers in the same line`() {
+        val text = """
+            Faktura 5/2026
+            Rachunek bankowy (mBank) 2026 61109010140000071219812874
+        """.trimIndent()
+
+        assertEquals("PL61109010140000071219812874", InvoiceParser.parse(text).accountNumber)
+    }
+
+    @Test
+    fun `marketing email has no strong invoice signal`() {
+        val text = """
+            Nowości tygodnia w Empiku!
+            Książka "Przykład" teraz 39,99 zł
+            Zestaw klocków 199,99 zł
+            Zamówienia powyżej 49 zł z darmową dostawą. Fakturę pobierzesz w swoim koncie.
+        """.trimIndent()
+
+        val result = InvoiceParser.parse(text)
+
+        assertTrue(result.looksLikeInvoice)
+        assertFalse(result.strongInvoiceSignal)
+        assertEquals(0, result.amountConfidence)
+        assertNull(result.accountNumber)
+    }
+
+    @Test
+    fun `real invoice has strong signal and confident amount`() {
+        val result = InvoiceParser.parse("Faktura VAT nr 1/2026\nDo zapłaty: 10,00 zł")
+
+        assertTrue(result.strongInvoiceSignal)
+        assertEquals(3, result.amountConfidence)
+    }
+
+    // Układ zeskanowanej faktury, w którym OCR rozdziela kolumnę etykiet i kolumnę wartości.
+    private fun scannedInvoice(account: String) = """
+        Sprzedawca:
+        KDKSYSTEM KSIĘŻAK KRZYSZTOF
+        Adres:
+        NIP:
+        Rachunek:
+        Telefon:
+        PROMIENNA 10 A 05-270 MARKI
+        NIP: 5341363580 Regon: 140994064 BDO: 4
+        $account PKO BP SA ODDZIAŁ 2 W PRUSZKOWIE
+        MARKI, data wystawienia: 24.10.2026
+        Nabywca:
+        Faktura FA 94/10/26
+        Razem: 1 538,00 353,74 1 891,74
+        Należność ogółem: 1 891,74 zł słownie: jeden tysiąc osiemset dziewięćdziesiąt jeden złotych
+        Pozostaje do zapłaty: 1 891,74 zł.
+        Płatność: przelew
+        Termin zapłaty do: 31.10.2026
+    """.trimIndent()
+
+    @Test
+    fun `parses scanned invoice with labels separated from values`() {
+        val result = InvoiceParser.parse(scannedInvoice("42102010550000910201464734"))
+
+        assertEquals("PL42102010550000910201464734", result.accountNumber)
+        assertTrue(result.accountVerified)
+        assertEquals("FA 94/10/26", result.invoiceNumber)
+        assertEquals("KDKSYSTEM KSIĘŻAK KRZYSZTOF", result.sellerName)
+        assertEquals("5341363580", result.sellerNip)
+        assertEquals(BigDecimal("1891.74"), result.amount)
+        assertEquals(LocalDate.of(2026, 10, 31), result.dueDate)
+        assertEquals(LocalDate.of(2026, 10, 24), result.issueDate)
+        assertTrue(result.strongInvoiceSignal)
+        assertFalse(result.marketing)
+    }
+
+    @Test
+    fun `repairs OCR letters in account number far from its label`() {
+        val result = InvoiceParser.parse(scannedInvoice("421O2O1O55OOOO91O2O1464734"))
+
+        assertEquals("PL42102010550000910201464734", result.accountNumber)
+        assertTrue(result.accountVerified)
+    }
+
+    @Test
+    fun `keeps account number with OCR digit error as unverified`() {
+        val result = InvoiceParser.parse(scannedInvoice("42102010550000910201464784"))
+
+        assertEquals("PL42102010550000910201464784", result.accountNumber)
+        assertFalse(result.accountVerified)
+    }
+
+    @Test
+    fun `verified account from another source wins over unverified one`() {
+        val ocr = ParsedInvoice(accountNumber = "PL42102010550000910201464784", accountVerified = false)
+        val body = ParsedInvoice(accountNumber = "PL42102010550000910201464734")
+
+        val merged = ocr.mergeWith(body)
+
+        assertEquals("PL42102010550000910201464734", merged.accountNumber)
+        assertTrue(merged.accountVerified)
+    }
+
+    @Test
+    fun `detects Empik newsletter with consumer credit disclaimer`() {
+        val text = """
+            Jeśli newsletter nie wyświetla się poprawnie, użyj tego linku.
+            Regulamin usług "Empik Premium" znajdziesz tutaj.
+            Akcja "Empik Premium taniej przy zakupach za min. 50 zł w salonie, w tym książki" jest skierowana do klientów.
+            Dla kredytu na zakup towarów i usług z karencją: Rzeczywista Roczna Stopa Oprocentowania (RRSO) 0%;
+            cena towaru 2000 zł; całkowita kwota kredytu 2000 zł; całkowita kwota do zapłaty 2000 zł;
+            całkowity koszt kredytu 0 zł; wysokość 20 równych rat miesięcznych 100 zł.
+            Niniejsza propozycja nie jest ofertą w rozumieniu art. 66 Kodeksu Cywilnego.
+            Nie chcę otrzymywać newslettera.
+            Empik S.A. z siedzibą w Warszawie, NIP: 5260207427, kapitał zakładowy 97 028 362,00 zł, opłacony w całości.
+        """.trimIndent()
+
+        val result = InvoiceParser.parse(text)
+
+        assertTrue(result.marketing)
+        assertFalse(result.strongInvoiceSignal)
+        assertNull(result.accountNumber)
+    }
+
+    @Test
+    fun `order confirmation without the word invoice is not an invoice and is already paid`() {
+        val text = """
+            Szczegóły zamówienia ZN411806/26
+            Grzebienie dolnego kosza pasuje do zmywarki Siemens SN66N080EU/18
+            632-UK-0167
+            Towar gotowy do wysyłki.
+            1 szt. 183,00 zł
+            InPost Paczkomat 24/7 (przedpłata) 13,99 zł
+            Zapłacono: 196,99 zł
+            Twoje zakupy realizowane z InPostPay
+        """.trimIndent()
+
+        val result = InvoiceParser.parse(text)
+
+        assertFalse(result.looksLikeInvoice)
+        assertTrue(result.alreadyPaid)
+    }
+
+    @Test
+    fun `recognises the word invoice in other languages`() {
+        listOf("Rechnung Nr. 4711", "Factura 12/2026", "Facture n° 15", "Fattura 3", "Fakturę wysłaliśmy", "INVOICE #9")
+            .forEach { assertTrue(it, InvoiceParser.looksLikeInvoice(it)) }
+        listOf("Potwierdzenie zamówienia", "Numer rachunku: 61 1090", "Do zapłaty 10 zł")
+            .forEach { assertFalse(it, InvoiceParser.looksLikeInvoice(it)) }
     }
 
     @Test

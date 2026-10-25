@@ -19,6 +19,8 @@ data class Invoice(
     val recipientNip: String? = null,
     /** Znormalizowany IBAN. */
     val accountNumber: String? = null,
+    /** false – numer odczytany, ale z błędną sumą kontrolną (do sprawdzenia z fakturą). */
+    val accountVerified: Boolean = true,
     /** Kwota w postaci tekstowej BigDecimal, np. "123.45". */
     val amount: String? = null,
     val currency: String = "PLN",
@@ -30,6 +32,10 @@ data class Invoice(
     val splitPayment: Boolean = false,
     val status: PaymentStatus = PaymentStatus.TO_PAY,
     val editedByUser: Boolean = false,
+    /** Tekst, z którego odczytano dane (do podglądu i zgłaszania błędów odczytu). */
+    val sourceText: String? = null,
+    /** Wersja reguł analizy, którymi przetworzono wiadomość; starsze są analizowane ponownie. */
+    val analysisVersion: Int = 1,
 ) {
     val amountValue: BigDecimal? get() = amount?.toBigDecimalOrNull()
     val dueDateValue: LocalDate? get() = dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
@@ -38,5 +44,5 @@ data class Invoice(
         get() = status == PaymentStatus.TO_PAY && dueDateValue?.isBefore(LocalDate.now()) == true
 
     /** Komplet danych potrzebnych do wykonania przelewu. */
-    val isComplete: Boolean get() = accountNumber != null && amount != null
+    val isComplete: Boolean get() = accountNumber != null && accountVerified && amount != null
 }

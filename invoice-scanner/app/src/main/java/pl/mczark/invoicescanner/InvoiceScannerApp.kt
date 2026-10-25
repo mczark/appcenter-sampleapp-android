@@ -3,6 +3,8 @@ package pl.mczark.invoicescanner
 import android.app.Application
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import pl.mczark.invoicescanner.auth.GmailAuthorizer
+import pl.mczark.invoicescanner.background.DailyCheck
+import pl.mczark.invoicescanner.background.InvoiceNotifier
 import pl.mczark.invoicescanner.data.InvoiceRepository
 import pl.mczark.invoicescanner.data.InvoiceScanner
 import pl.mczark.invoicescanner.extract.AttachmentTextExtractor
@@ -22,5 +24,7 @@ class InvoiceScannerApp : Application() {
         repository = InvoiceRepository(this)
         scanner = InvoiceScanner(repository, AttachmentTextExtractor(this))
         authorizer = GmailAuthorizer(this)
+        InvoiceNotifier.createChannel(this)
+        DailyCheck.scheduleIfEnabled(this)
     }
 }
