@@ -1,6 +1,7 @@
 package pl.mczark.invoicescanner.data
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,12 @@ class InvoiceRepository(context: Context) {
         val accountEmail: String? = null,
         /** Wersja reguł analizy, której dotyczy [skippedMessageIds]. */
         val analysisVersion: Int = 1,
+        /**
+         * Statusy ustawione ręcznie ("opłacona" / "do zapłaty"). Przechowywane osobno od wyników
+         * analizy, więc przetrwają ponowną analizę po aktualizacji aplikacji, także gdy faktura
+         * na chwilę zniknie z listy.
+         */
+        val statusOverrides: Map<String, PaymentStatus>? = null,
     )
 
     private val file = File(context.filesDir, "invoices.json")
@@ -67,7 +74,16 @@ class InvoiceRepository(context: Context) {
     }
 
     suspend fun addInvoice(invoice: Invoice) = update { s ->
-        s.copy(invoices = s.invoices.filterNot { it.messageId == invoice.messageId } + invoice)
+        val status = s.statusOverrides.orEmpty()[invoice.messageId] ?: invoice.status
+        s.copy(invoices = s.invoices.filterNot { it.messageId == invoice.messageId } + invoice.copy(status = status))
+    }
+
+    /** Status ustawiony przez użytkownika – ma pierwszeństwo przed wynikiem analizy. */
+    suspend fun setStatus(messageId: String, status: PaymentStatus) = update { s ->
+        s.copy(
+            invoices = s.invoices.map { if (it.messageId == messageId) it.copy(status = status) else it },
+            statusOverrides = s.statusOverrides.orEmpty() + (messageId to status),
+        )
     }
 
     suspend fun markSkipped(messageId: String) = update { s ->
@@ -87,11 +103,11 @@ class InvoiceRepository(context: Context) {
 
     suspend fun setAccountEmail(email: String) = update { s ->
         // Zmiana konta – dane poprzedniej skrzynki nie mają sensu.
-        if (s.accountEmail != null && s.accountEmail != email) Store(accountEmail = email)
+        if (s.accountEmail != null && s.accountEmail != email) Store(accountEmail = email, statusOverrides = emptyMap())
         else s.copy(accountEmail = email)
     }
 
-    suspend fun clear() = update { Store() }
+    suspend fun clear() = update { Store(statusOverrides = emptyMap()) }
 
     private suspend fun update(transform: (Store) -> Store) = mutex.withLock {
         val updated = transform(store.value)
@@ -105,7 +121,26 @@ class InvoiceRepository(context: Context) {
         }
     }
 
-    private fun load(): Store = runCatching {
-        if (file.exists()) json.decodeFromString(Store.serializer(), file.readText()) else Store()
-    }.getOrDefault(Store())
+    private fun load(): Store {
+        if (!file.exists()) return Store(statusOverrides = emptyMap())
+        val loaded = try {
+            json.decodeFromString(Store.serializer(), file.readText())
+        } catch (e: Exception) {
+            // Nie nadpisujemy nieczytelnych danych pustą listą – zostaje kopia do odzyskania.
+            Log.e(TAG, "Nie udało się odczytać zapisanych faktur", e)
+            file.renameTo(File(file.parentFile, "invoices-unreadable-${System.currentTimeMillis()}.json"))
+            return Store(statusOverrides = emptyMap())
+        }
+        // Dane sprzed wersji z osobnymi statusami: obecne oznaczenia "opłacona" traktujemy jak ręczne,
+        // żeby ponowna analiza ich nie cofnęła.
+        return if (loaded.statusOverrides != null) loaded else loaded.copy(
+            statusOverrides = loaded.invoices
+                .filter { it.status == PaymentStatus.PAID }
+                .associate { it.messageId to it.status },
+        )
+    }
+
+    private companion object {
+        const val TAG = "InvoiceRepository"
+    }
 }

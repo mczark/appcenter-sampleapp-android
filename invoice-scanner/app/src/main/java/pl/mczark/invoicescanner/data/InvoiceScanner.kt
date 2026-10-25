@@ -50,11 +50,9 @@ class InvoiceScanner(
                 val invoice = analyze(api, api.message(id))
                 when {
                     invoice != null -> {
-                        // Ponowna analiza nie może cofnąć oznaczenia "opłacona".
-                        val status = if (previous?.status == PaymentStatus.PAID) PaymentStatus.PAID else invoice.status
-                        val saved = invoice.copy(status = status)
-                        repository.addInvoice(saved)
-                        if (previous == null) added += saved
+                        // Ręcznie ustawiony status nakłada repozytorium (przetrwa ponowną analizę).
+                        repository.addInvoice(invoice)
+                        if (previous == null) repository.invoice(id)?.let { added += it }
                     }
                     previous != null -> repository.removeAndSkip(id)
                     else -> repository.markSkipped(id)
