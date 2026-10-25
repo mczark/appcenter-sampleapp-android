@@ -2,6 +2,8 @@ package pl.mczark.invoicescanner.data
 
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import pl.mczark.invoicescanner.extract.AttachmentTextExtractor
 import pl.mczark.invoicescanner.gmail.GmailApi
 import pl.mczark.invoicescanner.gmail.GmailAuthException
@@ -12,7 +14,8 @@ import pl.mczark.invoicescanner.parser.TextUtils
 
 data class ScanProgress(val processed: Int, val total: Int, val found: Int)
 
-data class ScanResult(val scanned: Int, val newInvoices: Int)
+/** [newInvoices] – faktury, których wcześniej nie było na liście. */
+data class ScanResult(val scanned: Int, val newInvoices: List<Invoice>)
 
 /**
  * Przeszukuje skrzynkę Gmail: wybiera wiadomości wyglądające na faktury, czyta treść
@@ -27,7 +30,8 @@ class InvoiceScanner(
         accessToken: String,
         daysBack: Int = DEFAULT_DAYS_BACK,
         onProgress: (ScanProgress) -> Unit = {},
-    ): ScanResult {
+    ): ScanResult = scanMutex.withLock {
+        // Skanowanie z aplikacji i codzienne sprawdzanie w tle nie mogą działać jednocześnie.
         val api = GmailApi(accessToken)
         repository.setAccountEmail(api.profile().emailAddress)
         repository.startAnalysisVersion(ANALYSIS_VERSION)
@@ -38,9 +42,9 @@ class InvoiceScanner(
             .distinct()
             .filterNot { repository.isKnown(it, ANALYSIS_VERSION) }
 
-        var found = 0
+        val added = mutableListOf<Invoice>()
         ids.forEachIndexed { index, id ->
-            onProgress(ScanProgress(index, ids.size, found))
+            onProgress(ScanProgress(index, ids.size, added.size))
             try {
                 val previous = repository.invoice(id)
                 val invoice = analyze(api, api.message(id))
@@ -48,8 +52,9 @@ class InvoiceScanner(
                     invoice != null -> {
                         // Ponowna analiza nie może cofnąć oznaczenia "opłacona".
                         val status = if (previous?.status == PaymentStatus.PAID) PaymentStatus.PAID else invoice.status
-                        repository.addInvoice(invoice.copy(status = status))
-                        if (previous == null) found++
+                        val saved = invoice.copy(status = status)
+                        repository.addInvoice(saved)
+                        if (previous == null) added += saved
                     }
                     previous != null -> repository.removeAndSkip(id)
                     else -> repository.markSkipped(id)
@@ -63,9 +68,11 @@ class InvoiceScanner(
                 Log.w(TAG, "Nie udało się przeanalizować wiadomości $id", e)
             }
         }
-        onProgress(ScanProgress(ids.size, ids.size, found))
-        return ScanResult(scanned = ids.size, newInvoices = found)
+        onProgress(ScanProgress(ids.size, ids.size, added.size))
+        ScanResult(scanned = ids.size, newInvoices = added)
     }
+
+    private val scanMutex = Mutex()
 
     private suspend fun analyze(api: GmailApi, message: GmailMessage): Invoice? {
         val subject = message.header("Subject").orEmpty()

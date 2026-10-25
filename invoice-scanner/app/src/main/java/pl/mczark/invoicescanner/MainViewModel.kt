@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pl.mczark.invoicescanner.auth.AuthState
+import pl.mczark.invoicescanner.background.DailyCheck
 import pl.mczark.invoicescanner.data.Invoice
 import pl.mczark.invoicescanner.data.PaymentStatus
 import pl.mczark.invoicescanner.data.ScanProgress
@@ -29,6 +30,8 @@ data class UiState(
     val scanning: Boolean = false,
     val progress: ScanProgress? = null,
     val message: String? = null,
+    /** Codzienne sprawdzanie skrzynki w tle z powiadomieniem o nowych fakturach. */
+    val dailyCheckEnabled: Boolean = true,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,12 +46,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     private val scanState = MutableStateFlow(ScanState())
+    private val dailyCheckEnabled = MutableStateFlow(DailyCheck.isEnabled(application))
 
     val uiState: StateFlow<UiState> = combine(
         repository.invoices,
         repository.accountEmail,
         scanState,
-    ) { invoices, email, scan ->
+        dailyCheckEnabled,
+    ) { invoices, email, scan, daily ->
         UiState(
             accountEmail = email,
             invoices = invoices.sortedWith(
@@ -59,6 +64,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             scanning = scan.scanning,
             progress = scan.progress,
             message = scan.message,
+            dailyCheckEnabled = daily,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
 
@@ -110,8 +116,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val summary = when {
                 result.scanned == 0 -> "Brak nowych wiadomości do sprawdzenia"
-                result.newInvoices == 0 -> "Sprawdzono ${result.scanned} wiadomości – brak nowych faktur"
-                else -> "Znaleziono nowe faktury: ${result.newInvoices}"
+                result.newInvoices.isEmpty() -> "Sprawdzono ${result.scanned} wiadomości – brak nowych faktur"
+                else -> "Znaleziono nowe faktury: ${result.newInvoices.size}"
             }
             scanState.update { ScanState(message = summary) }
         } catch (e: GmailAuthException) {
@@ -148,6 +154,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun delete(invoice: Invoice) = viewModelScope.launch {
         repository.delete(invoice.messageId)
+    }
+
+    fun setDailyCheckEnabled(enabled: Boolean) {
+        DailyCheck.setEnabled(app, enabled)
+        dailyCheckEnabled.value = enabled
     }
 
     fun clearAll() = viewModelScope.launch {
