@@ -4,6 +4,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import pl.radar.spolek.domain.Bar
+import pl.radar.spolek.domain.Fundamentals
 import java.io.IOException
 import java.net.URLEncoder
 
@@ -134,7 +135,7 @@ class YahooClient {
     private suspend fun quoteBatch(joined: String, retry: Boolean = true): JSONObject {
         val c = ensureCrumb()
         val url = "https://query2.finance.yahoo.com/v7/finance/quote?symbols=${enc(joined)}" +
-            "&fields=trailingPE,epsTrailingTwelveMonths,regularMarketPrice&crumb=${enc(c)}"
+            "&fields=trailingPE,forwardPE,priceToBook,epsTrailingTwelveMonths,regularMarketPrice&crumb=${enc(c)}"
         return try {
             JSONObject(Http.get(url))
         } catch (e: HttpException) {
@@ -143,6 +144,64 @@ class YahooClient {
                 quoteBatch(joined, retry = false)
             } else throw e
         }
+    }
+
+    /** Wskaźniki fundamentalne jednej spółki z /v10/finance/quoteSummary (wymaga tokenu). */
+    suspend fun fundamentals(symbol: String, retry: Boolean = true): Fundamentals {
+        val url = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/${enc(toYahoo(symbol))}" +
+            "?modules=financialData,defaultKeyStatistics,summaryDetail&crumb=${enc(ensureCrumb())}"
+        val json = try {
+            JSONObject(Http.get(url, retries = 2))
+        } catch (e: HttpException) {
+            if (retry && (e.code == 401 || e.code == 403)) { crumb = null; return fundamentals(symbol, false) }
+            throw e
+        }
+        val r = json.optJSONObject("quoteSummary")?.optJSONArray("result")?.optJSONObject(0)
+            ?: throw IOException("Brak danych fundamentalnych dla $symbol")
+        val fd = r.optJSONObject("financialData")
+        val ks = r.optJSONObject("defaultKeyStatistics")
+        val sd = r.optJSONObject("summaryDetail")
+        return Fundamentals(
+            symbol = symbol,
+            pe = raw(sd, "trailingPE"),
+            forwardPe = raw(ks, "forwardPE") ?: raw(sd, "forwardPE"),
+            peg = raw(ks, "pegRatio") ?: raw(ks, "trailingPegRatio"),
+            priceToBook = raw(ks, "priceToBook"),
+            roe = raw(fd, "returnOnEquity"),
+            profitMargin = raw(fd, "profitMargins") ?: raw(ks, "profitMargins"),
+            revenueGrowth = raw(fd, "revenueGrowth"),
+            // Yahoo podaje D/E w procentach (150 = 1,5×)
+            debtToEquity = raw(fd, "debtToEquity")?.div(100.0),
+        )
+    }
+
+    /** Uproszczone wskaźniki z /v7/finance/quote (zapas, gdy quoteSummary nie odpowiada). */
+    suspend fun basicFundamentals(symbols: List<String>): Map<String, Fundamentals> {
+        val out = HashMap<String, Fundamentals>()
+        val back = symbols.associateBy { toYahoo(it) }
+        for (batch in symbols.chunked(50)) {
+            val json = quoteBatch(batch.joinToString(",") { toYahoo(it) })
+            val arr = json.optJSONObject("quoteResponse")?.optJSONArray("result") ?: continue
+            for (i in 0 until arr.length()) {
+                val q = arr.getJSONObject(i)
+                val sym = back[q.optString("symbol")] ?: continue
+                fun d(k: String) = q.optDouble(k, Double.NaN).takeIf { !it.isNaN() }
+                out[sym] = Fundamentals(sym, pe = d("trailingPE"), forwardPe = d("forwardPE"), priceToBook = d("priceToBook"))
+            }
+        }
+        return out
+    }
+
+    /** Wartość pola Yahoo: {"raw": 1.23, "fmt": "1.23"} albo sama liczba. */
+    private fun raw(o: JSONObject?, key: String): Double? {
+        if (o == null || !o.has(key) || o.isNull(key)) return null
+        val v = o.opt(key)
+        val d = when (v) {
+            is JSONObject -> if (v.has("raw")) v.optDouble("raw", Double.NaN) else Double.NaN
+            is Number -> v.toDouble()
+            else -> Double.NaN
+        }
+        return d.takeIf { !it.isNaN() && !it.isInfinite() }
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")

@@ -26,7 +26,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,8 +38,9 @@ import pl.radar.spolek.domain.GroupMeter
 private enum class MeterLevel(val label: String) { INDUSTRY("Branże"), SECTOR("Sektory") }
 
 private enum class MeterSort(val label: String) {
+    GREEN_2W("Najwięcej zielonych sesji w 2 tygodnie"),
     TODAY("Najsilniejsze w ostatniej sesji"),
-    GREEN_DAYS("Najwięcej zielonych sesji"),
+    GREEN_DAYS("Najwięcej zielonych sesji w 2 miesiące"),
     NAME("Nazwa"),
 }
 
@@ -53,16 +53,22 @@ private fun GroupMeter.lastShare(): Double {
 
 private fun GroupMeter.greenDays() = days.count { it.net > 0 }
 
+/** Ostatnie 2 tygodnie = 10 sesji. */
+private const val TWO_WEEKS = 10
+private fun GroupMeter.green2w() = days.takeLast(TWO_WEEKS).count { it.net > 0 }
+
 /** Drill-down trendomierza: osobny trendomierz dla każdej branży (lub sektora). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrendMeterScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun TrendMeterScreen(vm: MainViewModel, onBack: () -> Unit, onOpenGroup: (level: String, name: String) -> Unit) {
     val state by vm.home.collectAsState()
     val r = state.result
     var level by remember { mutableStateOf(MeterLevel.INDUSTRY) }
-    var sort by remember { mutableStateOf(MeterSort.TODAY) }
+    var sort by remember { mutableStateOf(MeterSort.GREEN_2W) }
     var query by remember { mutableStateOf("") }
-    val expanded = remember { mutableStateMapOf<String, Boolean>() }
+    val uptrendCount = remember(r, level) {
+        r?.uptrendStocks.orEmpty().groupingBy { if (level == MeterLevel.SECTOR) it.sector else it.industry }.eachCount()
+    }
     val listState = rememberLazyListState()
 
     val all = when (level) { MeterLevel.INDUSTRY -> r?.industryMeters; MeterLevel.SECTOR -> r?.sectorMeters }.orEmpty()
@@ -71,6 +77,9 @@ fun TrendMeterScreen(vm: MainViewModel, onBack: () -> Unit) {
         .filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
         .let { list ->
             when (sort) {
+                MeterSort.GREEN_2W -> list.sortedWith(
+                    compareByDescending<GroupMeter> { it.green2w() }.thenByDescending { it.greenDays() }.thenByDescending { it.lastShare() },
+                )
                 MeterSort.TODAY -> list.sortedWith(compareByDescending<GroupMeter> { it.lastShare() }.thenByDescending { it.size })
                 MeterSort.GREEN_DAYS -> list.sortedWith(compareByDescending<GroupMeter> { it.greenDays() }.thenByDescending { it.lastShare() })
                 MeterSort.NAME -> list.sortedBy { it.name.lowercase() }
@@ -119,58 +128,53 @@ fun TrendMeterScreen(vm: MainViewModel, onBack: () -> Unit) {
                     val red = all.count { it.days.last().net < 0 }
                     Text(
                         "Ostatnia sesja (${Fmt.day(all.first().days.last().epochDay)}): $green zielonych, $red czerwonych " +
-                            "z ${all.size}. Dotknij, by rozwinąć wykres.",
+                            "z ${all.size}. Dotknij grupy, by zobaczyć jej spółki w trendzie wzrostowym.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             items(shown, key = { "${level.name}:${it.name}" }) { g ->
-                GroupMeterRow(g, expanded[g.name] == true) { expanded[g.name] = expanded[g.name] != true }
+                GroupMeterRow(g, uptrendCount[g.name] ?: 0) {
+                    onOpenGroup(if (level == MeterLevel.SECTOR) "sector" else "industry", g.name)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun GroupMeterRow(g: GroupMeter, isExpanded: Boolean, onToggle: () -> Unit) {
+private fun GroupMeterRow(g: GroupMeter, uptrend: Int, onOpen: () -> Unit) {
     val neutral = MaterialTheme.colorScheme.outline
     val last = g.days.last()
-    var selected by remember(g) { mutableStateOf(g.days.size - 1) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = onToggle)) {
+    val recent = g.days.takeLast(TWO_WEEKS)
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Lamp(meterColor(last, neutral), diameter = 24.dp)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text(g.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2)
                     Text(
-                        "${g.size} spółek · ostatnio ▲ ${last.advancers} ▼ ${last.decliners}",
+                        "${g.size} spółek · w trendzie 6 mies.: $uptrend · ostatnio ▲ ${last.advancers} ▼ ${last.decliners}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("${g.greenDays()}/${g.days.size}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                    Text("zielonych", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${g.green2w()}/${recent.size}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                        color = if (g.green2w() * 2 > recent.size) pl.radar.spolek.ui.theme.Gain else MaterialTheme.colorScheme.onSurface)
+                    Text("zielone 2 tyg.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Text("›", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 8.dp))
             }
-            if (!isExpanded) {
-                MeterChart(g.days, selected = null, height = 48.dp, showAxis = false)
-            } else {
-                val d = g.days[selected.coerceIn(g.days.indices)]
-                Text(
-                    "${Fmt.day(d.epochDay)}:  ▲ ${d.advancers}   ▼ ${d.decliners}   bez zmian ${d.unchanged}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = meterColor(d, MaterialTheme.colorScheme.onSurface),
-                )
-                MeterChart(g.days, selected, onSelect = { selected = it }, height = 160.dp)
-                Text(
-                    "Słupek = spółki rosnące − spadające w tej grupie. Dotknij nagłówka, by zwinąć.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            // miniatura: 2 miesiące, ostatnie 2 tygodnie wyróżnione
+            MeterChart(g.days, selected = null, height = 48.dp, showAxis = false, highlightLast = TWO_WEEKS)
+            Text(
+                "2 miesiące: ${g.greenDays()}/${g.days.size} sesji zielonych",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

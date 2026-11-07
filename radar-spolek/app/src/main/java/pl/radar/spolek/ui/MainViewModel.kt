@@ -16,6 +16,11 @@ import pl.radar.spolek.data.ResultStore
 import pl.radar.spolek.data.SettingsStore
 import pl.radar.spolek.domain.Analysis
 import pl.radar.spolek.domain.Bar
+import pl.radar.spolek.domain.FundamentalScore
+import pl.radar.spolek.domain.Fundamentals
+import pl.radar.spolek.domain.GroupMeter
+import pl.radar.spolek.domain.ScoredStock
+import pl.radar.spolek.domain.TrendStock
 import pl.radar.spolek.domain.BounceSignal
 import pl.radar.spolek.domain.Recommendation
 import pl.radar.spolek.domain.ScreenResult
@@ -49,6 +54,18 @@ data class DetailState(
     val bounce: BounceSignal? = null,
 )
 
+/** Szczegóły branży (lub sektora): trendomierz grupy i spółki w trendzie z oceną fundamentalną. */
+data class GroupState(
+    val level: String = "",
+    val name: String = "",
+    val meter: GroupMeter? = null,
+    val stocks: List<TrendStock> = emptyList(),
+    val scored: List<ScoredStock> = emptyList(),
+    val loading: Boolean = false,
+    val progress: String = "",
+    val error: String? = null,
+)
+
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val settingsStore = SettingsStore(app)
     private val resultStore = ResultStore(app)
@@ -58,6 +75,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _detail = MutableStateFlow(DetailState())
     val detail: StateFlow<DetailState> = _detail.asStateFlow()
+
+    private val _group = MutableStateFlow(GroupState())
+    val group: StateFlow<GroupState> = _group.asStateFlow()
 
     private val _settings = MutableStateFlow(settingsStore.load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -110,6 +130,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val v = h.required ?: return
         val s = _settings.value
         saveSettings(s.copy(config = s.config.withParam(h.key, h.rounded(v))))
+    }
+
+    /** [level] = "industry" albo "sector". */
+    fun loadGroup(level: String, name: String) {
+        val cur = _group.value
+        if (cur.level == level && cur.name == name && (cur.loading || cur.scored.isNotEmpty())) return
+        val r = _home.value.result
+        val meter = (if (level == "sector") r?.sectorMeters else r?.industryMeters)?.firstOrNull { it.name == name }
+        val stocks = r?.uptrendStocks.orEmpty().filter { (if (level == "sector") it.sector else it.industry) == name }
+        _group.value = GroupState(level, name, meter, stocks, loading = stocks.isNotEmpty())
+        if (stocks.isEmpty()) return
+        viewModelScope.launch {
+            val repo = Repository(getApplication(), _settings.value.fmpKey, _settings.value.universe)
+            try {
+                val f = repo.fundamentals(stocks.map { it.symbol }) { d, t ->
+                    _group.update { it.copy(progress = "Wskaźniki fundamentalne: $d / $t") }
+                }
+                val scored = FundamentalScore.rank(stocks.map { f[it.symbol] ?: Fundamentals(it.symbol) })
+                val missing = stocks.count { it.symbol !in f }
+                _group.update {
+                    it.copy(
+                        scored = scored, loading = false,
+                        error = if (missing > 0) "Nie pobrano wskaźników dla $missing spółek." else null,
+                    )
+                }
+            } catch (e: Exception) {
+                _group.update {
+                    it.copy(loading = false, scored = FundamentalScore.rank(stocks.map { s -> Fundamentals(s.symbol) }),
+                        error = e.message ?: "Błąd pobierania wskaźników")
+                }
+            }
+        }
     }
 
     fun loadDetail(symbol: String) {

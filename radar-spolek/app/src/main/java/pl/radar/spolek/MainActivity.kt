@@ -1,6 +1,7 @@
 package pl.radar.spolek
 
 import android.Manifest
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -14,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import pl.radar.spolek.ui.DetailScreen
+import pl.radar.spolek.ui.GroupScreen
 import pl.radar.spolek.ui.HomeScreen
 import pl.radar.spolek.ui.MainViewModel
 import pl.radar.spolek.ui.SettingsScreen
@@ -49,7 +51,25 @@ class MainActivity : ComponentActivity() {
                         DetailScreen(vm, entry.arguments?.getString("symbol").orEmpty(), onBack = { nav.popBackStack() })
                     }
                     composable("trendmeter") {
-                        TrendMeterScreen(vm, onBack = { nav.popBackStack() })
+                        TrendMeterScreen(
+                            vm, onBack = { nav.popBackStack() },
+                            onOpenGroup = { level, name -> nav.navigate("group/$level/${Uri.encode(name)}") },
+                        )
+                    }
+                    composable(
+                        "group/{level}/{name}",
+                        arguments = listOf(
+                            navArgument("level") { type = NavType.StringType },
+                            navArgument("name") { type = NavType.StringType },
+                        ),
+                    ) { entry ->
+                        GroupScreen(
+                            vm,
+                            level = entry.arguments?.getString("level").orEmpty(),
+                            name = entry.arguments?.getString("name").orEmpty(),
+                            onBack = { nav.popBackStack() },
+                            onOpenStock = { nav.navigate("detail/$it") },
+                        )
                     }
                     composable("settings") {
                         SettingsScreen(vm, onBack = { nav.popBackStack() })
