@@ -112,6 +112,13 @@ data class MarketBreadthDay(
     val net: Int get() = advancers - decliners
 }
 
+/** Trendomierz jednej grupy (branży lub sektora). */
+data class GroupMeter(
+    val name: String,
+    val size: Int,
+    val days: List<MarketBreadthDay>,
+)
+
 data class GroupSummary(
     val name: String,
     val size: Int,
@@ -135,4 +142,7 @@ data class ScreenResult(
     val diagnosis: List<CriterionDiagnosis> = emptyList(),
     /** Trendomierz rynku za ostatnie 2 miesiące (od najstarszej sesji). */
     val trendMeter: List<MarketBreadthDay> = emptyList(),
+    /** Trendomierze branż i sektorów (te same sesje co [trendMeter]). */
+    val industryMeters: List<GroupMeter> = emptyList(),
+    val sectorMeters: List<GroupMeter> = emptyList(),
 )

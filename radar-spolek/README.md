@@ -41,6 +41,11 @@ ile skanowanych spółek zamknęło się wyżej, a ile niżej niż na poprzednie
 spółki bez zmian i odsetek rosnących. Dane pochodzą z zamknięć pobieranych w trakcie skanu, więc nie wymagają
 dodatkowych zapytań.
 
+**Drill-down:** po dotknięciu karty (lub „Trendomierze branż ›”) otwiera się lista trendomierzy dla każdej branży,
+a po przełączeniu – dla każdego sektora. Każda grupa ma lampkę ostatniej sesji, miniaturę wykresu z 2 miesięcy i licznik
+zielonych sesji. Listę można sortować (najsilniejsze w ostatniej sesji, najwięcej zielonych sesji, nazwa) i przeszukiwać.
+Dotknięcie grupy rozwija pełny wykres ze szczegółami dnia.
+
 ## Gdy żadna spółka nie spełnia kryteriów
 
 Aplikacja pokazuje wtedy kartę dla każdego kryterium, a na niej:

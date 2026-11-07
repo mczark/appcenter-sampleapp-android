@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import pl.radar.spolek.domain.CriterionDiagnosis
 import pl.radar.spolek.domain.Direction
+import pl.radar.spolek.domain.GroupMeter
 import pl.radar.spolek.domain.GroupSummary
 import pl.radar.spolek.domain.HintUnit
 import pl.radar.spolek.domain.MarketBreadthDay
@@ -134,9 +135,9 @@ class ResultStore(context: Context) {
                 }
             })
             .put("diagnosis", JSONArray().apply { r.diagnosis.forEach { put(encodeDiagnosis(it)) } })
-            .put("trendMeter", JSONArray().apply {
-                r.trendMeter.forEach { put(JSONArray().put(it.epochDay).put(it.advancers).put(it.decliners).put(it.unchanged)) }
-            })
+            .put("trendMeter", encodeDays(r.trendMeter))
+            .put("industryMeters", encodeGroups(r.industryMeters))
+            .put("sectorMeters", encodeGroups(r.sectorMeters))
         file.writeText(o.toString())
     }
 
@@ -170,14 +171,29 @@ class ResultStore(context: Context) {
             warnings = (0 until w.length()).map { w.getString(it) },
             diagnosis = o.optJSONArray("diagnosis")?.let { a -> (0 until a.length()).map { decodeDiagnosis(a.getJSONObject(it)) } }
                 ?: emptyList(),
-            trendMeter = o.optJSONArray("trendMeter")?.let { a ->
-                (0 until a.length()).map {
-                    val d = a.getJSONArray(it)
-                    MarketBreadthDay(d.getLong(0), d.getInt(1), d.getInt(2), d.getInt(3))
-                }
-            } ?: emptyList(),
+            trendMeter = o.optJSONArray("trendMeter")?.let { decodeDays(it) } ?: emptyList(),
+            industryMeters = o.optJSONArray("industryMeters")?.let { decodeGroups(it) } ?: emptyList(),
+            sectorMeters = o.optJSONArray("sectorMeters")?.let { decodeGroups(it) } ?: emptyList(),
         )
     }.getOrNull()
+
+    private fun encodeDays(days: List<MarketBreadthDay>) = JSONArray().apply {
+        days.forEach { put(JSONArray().put(it.epochDay).put(it.advancers).put(it.decliners).put(it.unchanged)) }
+    }
+
+    private fun decodeDays(a: JSONArray): List<MarketBreadthDay> = (0 until a.length()).map {
+        val d = a.getJSONArray(it)
+        MarketBreadthDay(d.getLong(0), d.getInt(1), d.getInt(2), d.getInt(3))
+    }
+
+    private fun encodeGroups(groups: List<GroupMeter>) = JSONArray().apply {
+        groups.forEach { put(JSONObject().put("name", it.name).put("size", it.size).put("days", encodeDays(it.days))) }
+    }
+
+    private fun decodeGroups(a: JSONArray): List<GroupMeter> = (0 until a.length()).map {
+        val g = a.getJSONObject(it)
+        GroupMeter(g.getString("name"), g.getInt("size"), decodeDays(g.getJSONArray("days")))
+    }
 
     private fun JSONObject.putOpt2(key: String, v: Any?): JSONObject = put(key, v ?: JSONObject.NULL)
     private fun JSONObject.optDoubleOrNull(key: String): Double? = if (isNull(key) || !has(key)) null else getDouble(key)

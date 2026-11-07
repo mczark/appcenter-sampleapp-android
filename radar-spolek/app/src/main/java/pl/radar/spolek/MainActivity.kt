@@ -17,6 +17,7 @@ import pl.radar.spolek.ui.DetailScreen
 import pl.radar.spolek.ui.HomeScreen
 import pl.radar.spolek.ui.MainViewModel
 import pl.radar.spolek.ui.SettingsScreen
+import pl.radar.spolek.ui.TrendMeterScreen
 import pl.radar.spolek.ui.theme.RadarTheme
 
 class MainActivity : ComponentActivity() {
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
                             vm = vm,
                             onOpen = { nav.navigate("detail/$it") },
                             onSettings = { nav.navigate("settings") },
+                            onTrendMeter = { nav.navigate("trendmeter") },
                         )
                     }
                     composable(
@@ -45,6 +47,9 @@ class MainActivity : ComponentActivity() {
                         arguments = listOf(navArgument("symbol") { type = NavType.StringType }),
                     ) { entry ->
                         DetailScreen(vm, entry.arguments?.getString("symbol").orEmpty(), onBack = { nav.popBackStack() })
+                    }
+                    composable("trendmeter") {
+                        TrendMeterScreen(vm, onBack = { nav.popBackStack() })
                     }
                     composable("settings") {
                         SettingsScreen(vm, onBack = { nav.popBackStack() })

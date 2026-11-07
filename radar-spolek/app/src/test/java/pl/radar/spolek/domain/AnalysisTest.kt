@@ -102,6 +102,21 @@ class AnalysisTest {
         assertTrue(r.trendMeter.all { it.advancers + it.decliners + it.unchanged == 7 })
     }
 
+    @Test fun groupTrendMetersSumToMarket() = runBlocking {
+        val r = ScreenerEngine(sampleMarket(), cfg, now = future).screen()
+        assertEquals(listOf("Oil", "Tech"), r.industryMeters.map { it.name })
+        assertEquals(listOf("Energy", "IT"), r.sectorMeters.map { it.name })
+        assertEquals(listOf(3, 4), r.industryMeters.map { it.size })
+        for (level in listOf(r.industryMeters, r.sectorMeters)) {
+            r.trendMeter.forEachIndexed { i, day ->
+                assertEquals(day.advancers, level.sumOf { it.days[i].advancers })
+                assertEquals(day.decliners, level.sumOf { it.days[i].decliners })
+            }
+        }
+        // Oil: FFF i GGG stale spadają → w ostatniej sesji przewaga spadków (czerwony)
+        assertTrue(r.industryMeters.first { it.name == "Oil" }.days.last().net < 0)
+    }
+
     @Test fun dropIncompleteBar() {
         val now = ZonedDateTime.of(2026, 11, 6, 11, 0, 0, 0, ScreenerEngine.NY)
         val today = now.toLocalDate().toEpochDay()
