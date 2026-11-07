@@ -1,0 +1,30 @@
+name: Probe API (tymczasowe)
+on:
+  push:
+    branches: ["claude/probe-api"]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: probe
+        run: |
+          UA='Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36'
+          note() { echo "::notice title=$1::$(head -c 1500 "$2" | tr '\n\r' '  ' | sed 's/%/%25/g')"; }
+          curl -s -m 30 -o nasdaq.json -w '%{http_code}' -H "User-Agent: $UA" -H 'Accept: application/json, text/plain, */*' -H 'Origin: https://www.nasdaq.com' -H 'Referer: https://www.nasdaq.com/' 'https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true' > code1 || true
+          echo "nasdaq http=$(cat code1) size=$(stat -c%s nasdaq.json)" > s1; note nasdaq_status s1; note nasdaq_body nasdaq.json
+          python3 -c "
+          import json;d=json.load(open('nasdaq.json'));r=d['data']['rows'];print(len(r));import collections
+          print(collections.Counter(x['sector'] for x in r).most_common(15))
+          print(len(set(x['industry'] for x in r)))
+          print([x['symbol'] for x in r if '/' in x['symbol'] or '^' in x['symbol']][:15])
+          print([x['name'] for x in r if 'arrant' in x['name']][:3])
+          " > n2 2>&1 || true; note nasdaq_stats n2
+          curl -s -m 30 -o gh.json -w '%{http_code}' 'https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/nyse/nyse_full_tickers.json' > code2 || true
+          echo "gh http=$(cat code2) size=$(stat -c%s gh.json)" > s2; note gh_status s2; note gh_body gh.json
+          curl -s -m 30 -o sp8.json -w '%{http_code}' -H "User-Agent: $UA" 'https://query1.finance.yahoo.com/v8/finance/spark?symbols=AAPL,BRK-B,MSFT&range=1y&interval=1d' > code3 || true
+          echo "spark8 http=$(cat code3) size=$(stat -c%s sp8.json)" > s3; note spark8_status s3; note spark8_body sp8.json
+          curl -s -m 30 -o sp7.json -w '%{http_code}' -H "User-Agent: $UA" 'https://query1.finance.yahoo.com/v7/finance/spark?symbols=AAPL,MSFT&range=1y&interval=1d' > code4 || true
+          echo "spark7 http=$(cat code4) size=$(stat -c%s sp7.json)" > s4; note spark7_status s4; note spark7_body sp7.json
+          syms=$(python3 -c "print(','.join(['AAPL','MSFT','GOOG','AMZN','META','NVDA','TSLA','JPM','V','MA','XOM','CVX','KO','PEP','WMT','HD','DIS','NFLX','INTC','AMD','CSCO','ORCL','IBM','QCOM','TXN']))")
+          curl -s -m 30 -o sp25.json -w '%{http_code}' -H "User-Agent: $UA" "https://query1.finance.yahoo.com/v8/finance/spark?symbols=$syms&range=1y&interval=1d" > code5 || true
+          echo "spark25 http=$(cat code5) size=$(stat -c%s sp25.json)" > s5; note spark25 s5; note spark25_body sp25.json
