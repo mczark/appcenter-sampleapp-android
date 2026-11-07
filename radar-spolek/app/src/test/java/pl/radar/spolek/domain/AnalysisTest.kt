@@ -140,6 +140,22 @@ class AnalysisTest {
         assertEquals(listOf("AAA"), ScreenerEngine(sampleMarket(), fixed, now = future).screen().recommendations.map { it.symbol })
     }
 
+    @Test fun twoStageFetchOnlyCandidates() = runBlocking {
+        val base = sampleMarket()
+        val ohlcCalls = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val staged = object : MarketData by base {
+            // etap 1: same zamknięcia (bez high/low), jak z hurtowego endpointu
+            override suspend fun closes(symbols: List<String>, onProgress: suspend (Int, Int) -> Unit) =
+                symbols.associateWith { s -> base.bars(s).map { it.copy(open = it.close, high = it.close, low = it.close) } }
+            override suspend fun ohlc(symbol: String): List<Bar> { ohlcCalls += symbol; return base.bars(symbol) }
+        }
+        val r = ScreenerEngine(staged, cfg, now = future).screen()
+        assertEquals(listOf("AAA"), r.recommendations.map { it.symbol })
+        // Oil nie jest w trendzie, a FFF/GGG nie mają trendu → bez pełnych świec
+        assertFalse("FFF" in ohlcCalls || "GGG" in ohlcCalls)
+        assertTrue("EEE" in ohlcCalls) // trend wzrostowy → sprawdzamy formację
+    }
+
     private fun sampleMarket(): MarketData {
         val good = bouncePattern()
         val n = good.size

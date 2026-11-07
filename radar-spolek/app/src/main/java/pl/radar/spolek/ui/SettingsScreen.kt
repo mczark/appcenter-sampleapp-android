@@ -34,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import pl.radar.spolek.data.AppSettings
+import pl.radar.spolek.data.UniverseFilter
+import pl.radar.spolek.data.UniverseMode
 import pl.radar.spolek.domain.GroupingLevel
 import pl.radar.spolek.domain.ScreenerConfig
 
@@ -44,8 +46,17 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var weekly by remember { mutableStateOf(initial.weeklyEnabled) }
     var fmpKey by remember { mutableStateOf(initial.fmpKey) }
     var grouping by remember { mutableStateOf(initial.config.grouping) }
+    var universeMode by remember { mutableStateOf(initial.universe.mode) }
+    var usOnly by remember { mutableStateOf(initial.universe.usOnly) }
     // wartości liczbowe edytujemy jako tekst; procenty pokazujemy w %
-    val f = remember { mutableStateOf(fieldsFrom(initial.config)) }
+    val f = remember {
+        mutableStateOf(
+            fieldsFrom(initial.config) + mapOf(
+                "minMarketCapM" to trimNum(initial.universe.minMarketCapM),
+                "minPrice" to trimNum(initial.universe.minPrice),
+            )
+        )
+    }
     var fields by f
 
     fun update(key: String, v: String) { fields = fields + (key to v) }
@@ -68,6 +79,25 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     Text("Sobota ok. 9:00, z powiadomieniem o wynikach", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(checked = weekly, onCheckedChange = { weekly = it })
+            }
+            HorizontalDivider()
+
+            Section("Spółki do skanowania")
+            UniverseMode.entries.forEach { m ->
+                FilterChip(selected = universeMode == m, onClick = { universeMode = m }, label = { Text(m.label) })
+            }
+            if (universeMode == UniverseMode.ALL_US) {
+                Text(
+                    "Akcje zwykłe ze wszystkich giełd USA (ok. 5–6 tys. spółek; bez warrantów, jednostek, praw poboru, " +
+                        "akcji uprzywilejowanych i funduszy). Branże według klasyfikacji Nasdaq.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                NumField("Min. kapitalizacja (mln USD, 0 = bez limitu)", fields, "minMarketCapM", ::update)
+                NumField("Min. cena akcji (USD, 0 = bez limitu)", fields, "minPrice", ::update)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tylko spółki z siedzibą w USA (bez ADR)", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = usOnly, onCheckedChange = { usOnly = it })
+                }
             }
             HorizontalDivider()
 
@@ -108,11 +138,19 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = {
-                    fields = fieldsFrom(ScreenerConfig()); grouping = ScreenerConfig().grouping
+                    val d = UniverseFilter()
+                    fields = fieldsFrom(ScreenerConfig()) + mapOf("minMarketCapM" to trimNum(d.minMarketCapM), "minPrice" to trimNum(d.minPrice))
+                    grouping = ScreenerConfig().grouping; universeMode = d.mode; usOnly = d.usOnly
                 }) { Text("Przywróć domyślne") }
                 Button(onClick = {
                     val cfg = configFrom(fields, grouping)
-                    vm.saveSettings(AppSettings(cfg, weekly, fmpKey))
+                    val universe = UniverseFilter(
+                        mode = universeMode,
+                        minMarketCapM = (fields["minMarketCapM"]?.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0),
+                        minPrice = (fields["minPrice"]?.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0),
+                        usOnly = usOnly,
+                    )
+                    vm.saveSettings(AppSettings(cfg, weekly, fmpKey, universe))
                     onBack()
                 }) { Text("Zapisz") }
             }

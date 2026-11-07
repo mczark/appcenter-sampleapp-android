@@ -1,7 +1,7 @@
 # Radar Spółek (Android)
 
 Aplikacja na Androida (Kotlin + Jetpack Compose), która raz w tygodniu (w sobotę ok. 9:00) albo na żądanie
-skanuje spółki z indeksu S&P 500 i pokazuje do 10 takich, które spełniają wszystkie cztery kryteria.
+skanuje wszystkie akcje notowane w USA (NYSE, Nasdaq, NYSE American; opcjonalnie tylko S&P 500) i pokazuje do 10 takich, które spełniają wszystkie cztery kryteria.
 Dla każdej spółki można otworzyć dzienny wykres świecowy z ostatnich 6 miesięcy i sprawdzić wskaźnik P/E.
 
 > To narzędzie filtruje spółki według reguł, które sam ustalasz. Nie jest poradą inwestycyjną.
@@ -27,7 +27,7 @@ Kryteria opisane słowami zamieniłem na konkretne reguły. Każdy próg można 
 
 | # | Kryterium | Reguła w aplikacji (domyślne progi) |
 |---|-----------|-------------------------------------|
-| 1 | Branża w trendzie wzrostowym od 10 dni | Grupa = podbranża GICS (albo sektor; do wyboru w ustawieniach), co najmniej 3 spółki. W **każdej** z 10 ostatnich sesji ≥ 50% spółek z grupy zamknęło się wyżej niż dzień wcześniej. |
+| 1 | Branża w trendzie wzrostowym od 10 dni | Grupa = branża według Nasdaq (dla trybu S&P 500: podbranża GICS) albo sektor – do wyboru w ustawieniach; co najmniej 3 spółki. W **każdej** z 10 ostatnich sesji ≥ 50% spółek z grupy zamknęło się wyżej niż dzień wcześniej. |
 | 2 | Spółka w jednoznacznym trendzie wzrostowym od pół roku | Liczone na ostatnich 126 sesjach. Wszystkie trzy warunki naraz: (a) regresja liniowa ln(ceny) ma dodatnie nachylenie i R² ≥ 0,70, czyli wzrost jest regularny, a nie jednorazowym skokiem; (b) wzrost ceny ≥ 10%; (c) wyższe szczyty i wyższe dołki: maksimum i minimum zamknięć z drugiej połowy okresu (ostatnie 3 mies.) są wyższe niż z pierwszej. |
 | 3 | P/E nie wyższe niż mediana branży | P/E TTM spółki ≤ mediana (× mnożnik, domyślnie 100%) dodatnich P/E spółek z tej samej grupy. Spółki ze stratą (ujemne lub brakujące P/E) są pomijane. |
 | 4 | Odbicie po korekcie do poziomu ostatniego wyraźnego szczytu z ostatniego miesiąca | Szczyt P z ostatnich 22 sesji: najwyższy high w oknie ±3 sesji, po którym cena spadła o ≥ 3% (dzięki temu jest „wyraźny”). Następnie zamknięcie powyżej P (wybicie) i nowy szczyt T. Potem korekta od T o ≥ 2%, której dołek wypada w strefie P ± 2,5%, a żadne zamknięcie nie spada poniżej tej strefy (poziom się obronił). Na koniec odbicie: ostatnie zamknięcie ≥ dołek + 1,5% i wyższe niż zamknięcie z dnia dołka, przy czym dołek był najwyżej 7 sesji temu. |
@@ -48,18 +48,32 @@ Ranking (gdy kandydatów jest więcej niż 10): R² × ln(1 + wzrost w 6 mies.),
 
 Jeśli sesja w USA jeszcze trwa, dzisiejsza niedomknięta świeca jest pomijana.
 
-## Źródła danych
+## Które spółki są skanowane
 
-- **Skład S&P 500 i klasyfikacja GICS:** plik CSV z repozytorium `datasets/s-and-p-500-companies` na GitHubie
-  (pobierany raz w tygodniu i zapisywany w telefonie).
-- **Notowania dzienne:** Yahoo Finance, endpoint `/v8/finance/chart` (bez klucza). Około 500 zapytań na skan,
-  przez 6 godzin trzymane w pamięci podręcznej.
-- **P/E:** Yahoo Finance, endpoint `/v7/finance/quote` (wymaga ciasteczka i tokenu, który aplikacja pobiera sama).
-  P/E jest pobierane tylko dla branż, które przeszły kryterium 1.
-  Zapasowo możesz podać darmowy klucz **Financial Modeling Prep** w ustawieniach.
+Domyślnie cały rynek USA, czyli lista z wyszukiwarki akcji Nasdaq: ok. 7 tys. instrumentów, a po odfiltrowaniu
+warrantów, jednostek SPAC, praw poboru, akcji uprzywilejowanych, obligacji i instrumentów bez klasyfikacji
+branżowej (głównie fundusze) zostaje ok. 5–6 tys. spółek. W ustawieniach można:
+- ograniczyć skan do S&P 500,
+- ustawić minimalną kapitalizację i minimalną cenę akcji (domyślnie bez limitu),
+- zostawić tylko spółki z siedzibą w USA (bez ADR-ów i innych spółek zagranicznych notowanych w USA).
 
-⚠ API Yahoo jest nieoficjalne i może zmienić się bez ostrzeżenia. Dostęp do tokenu bywa też blokowany
-w UE przez ekran zgody RODO. Jeśli P/E się nie pobiera, wpisz klucz FMP. Dostęp do danych jest wydzielony
+## Źródła danych i przebieg skanu
+
+1. **Lista spółek:** API wyszukiwarki Nasdaq (`api.nasdaq.com/api/screener/stocks`). Zapasowo używana jest jego codziennie
+   aktualizowana kopia z repozytorium `rreichel3/US-Stock-Symbols` na GitHubie. Lista jest odświeżana co 3 dni.
+   Tryb S&P 500 korzysta z pliku CSV `datasets/s-and-p-500-companies`.
+2. **Zamknięcia z roku dla wszystkich spółek:** Yahoo Finance `/v8/finance/spark`, 20 spółek na zapytanie, czyli ok. 300 zapytań.
+   Na ich podstawie liczone są kryteria 1 (branża) i 2 (trend). Jeśli zapytanie zbiorcze zawiedzie, aplikacja
+   pobiera wykresy pojedynczo.
+3. **Pełne świece z 6 miesięcy:** Yahoo `/v8/finance/chart`, tylko dla spółek z branż w trendzie lub w trendzie
+   wzrostowym. Służą do kryterium 4 (odbicie).
+4. **P/E:** Yahoo `/v7/finance/quote`, tylko dla branż, które są potrzebne. Zapasowo działa klucz Financial Modeling Prep.
+
+Skan całego rynku trwa zwykle kilka minut i pobiera kilkanaście–kilkadziesiąt MB, więc najlepiej uruchamiać go przez Wi-Fi.
+W trakcie aplikacja pokazuje powiadomienie, bo działa jako praca pierwszoplanowa.
+
+⚠ API Yahoo i Nasdaq są nieoficjalne i mogą zmienić się bez ostrzeżenia. Dostęp do tokenu Yahoo bywa też
+blokowany w UE przez ekran zgody RODO. Jeśli P/E się nie pobiera, wpisz klucz FMP. Dostęp do danych jest wydzielony
 za interfejsem `MarketData` (`domain/ScreenerEngine.kt`), więc źródło da się podmienić, np. na płatne API.
 
 ## Struktura
@@ -70,7 +84,7 @@ app/src/main/java/pl/radar/spolek/
 │   ├── Models.kt          modele + ScreenerConfig (progi kryteriów)
 │   ├── Analysis.kt        regresja, trend, wykrywanie odbicia, szerokość rynku, mediana
 │   └── ScreenerEngine.kt  orkiestracja skanu
-├── data/            sieć i pamięć podręczna (Yahoo, FMP, CSV S&P 500, ustawienia, wyniki)
+├── data/            sieć i pamięć podręczna (Nasdaq, Yahoo, FMP, CSV S&P 500, ustawienia, wyniki)
 ├── work/            WorkManager: skan cotygodniowy i na żądanie + powiadomienia
 └── ui/              Compose: lista rekomendacji, szczegóły z wykresem świecowym, ustawienia
 app/src/test/…       testy jednostkowe algorytmów (./gradlew testDebugUnitTest)
@@ -78,6 +92,5 @@ app/src/test/…       testy jednostkowe algorytmów (./gradlew testDebugUnitTes
 
 ## Możliwe rozszerzenia
 
-- Szersze uniwersum (S&P 400/600, Russell 1000): wystarczy podmienić `Repository.universe()`.
 - Historia skanów i śledzenie wyników rekomendacji w czasie.
 - Filtr płynności (minimalny średni wolumen obrotu).

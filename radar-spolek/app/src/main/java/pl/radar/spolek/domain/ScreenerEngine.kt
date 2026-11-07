@@ -15,6 +15,22 @@ interface MarketData {
     suspend fun universe(): List<Company>
     /** Dzienne świece za ok. rok, posortowane rosnąco. */
     suspend fun bars(symbol: String): List<Bar>
+
+    /**
+     * Zamknięcia (ok. rok) dla wielu spółek naraz – etap 1 skanu. Świece mogą mieć open = high = low = close.
+     * Domyślnie pobiera pełne świece po kolei.
+     */
+    suspend fun closes(symbols: List<String>, onProgress: suspend (Int, Int) -> Unit): Map<String, List<Bar>> {
+        val out = LinkedHashMap<String, List<Bar>>()
+        symbols.forEachIndexed { i, s ->
+            runCatching { bars(s) }.getOrNull()?.let { out[s] = it }
+            onProgress(i + 1, symbols.size)
+        }
+        return out
+    }
+
+    /** Pełne świece OHLC z ostatnich miesięcy – etap 2 skanu (formacja odbicia). */
+    suspend fun ohlc(symbol: String): List<Bar> = bars(symbol)
     /** Wskaźnik P/E (TTM); null gdy brak lub ujemne zyski. */
     suspend fun peRatios(symbols: List<String>): Map<String, Double?>
 }
@@ -40,38 +56,25 @@ class ScreenerEngine(
 
     suspend fun screen(progress: suspend (String, Float) -> Unit = { _, _ -> }): ScreenResult = coroutineScope {
         val warnings = mutableListOf<String>()
-        progress("Pobieranie składu indeksu S&P 500…", 0f)
+        progress("Pobieranie listy spółek…", 0f)
         val universe = data.universe()
         val nowNy = now()
 
-        // 1. Notowania wszystkich spółek
-        val done = AtomicInteger(0)
-        val failed = AtomicInteger(0)
-        val sem = Semaphore(concurrency)
-        val barsBySymbol: Map<String, List<Bar>> = universe.map { c ->
-            async {
-                sem.withPermit {
-                    val bars = try {
-                        dropIncomplete(data.bars(c.symbol), nowNy)
-                    } catch (e: Exception) {
-                        failed.incrementAndGet(); emptyList()
-                    }
-                    val d = done.incrementAndGet()
-                    if (d % 10 == 0 || d == universe.size) {
-                        progress("Notowania: $d / ${universe.size}", 0.05f + 0.75f * d / universe.size)
-                    }
-                    c.symbol to bars
-                }
-            }
-        }.awaitAll().filter { it.second.isNotEmpty() }.toMap()
-        if (failed.get() > 0) warnings += "Nie pobrano notowań dla ${failed.get()} spółek."
+        // 1. Zamknięcia wszystkich spółek (hurtowo)
+        progress("Notowania: 0 / ${universe.size}", 0.03f)
+        val raw = data.closes(universe.map { it.symbol }) { d, total ->
+            progress("Notowania: $d / $total", 0.03f + 0.6f * d / maxOf(1, total))
+        }
+        val barsBySymbol: Map<String, List<Bar>> = raw.mapValues { dropIncomplete(it.value, nowNy) }.filterValues { it.isNotEmpty() }
+        val failed = universe.size - barsBySymbol.size
+        if (failed > 0) warnings += "Brak notowań dla $failed spółek."
 
         val companies = universe.filter { it.symbol in barsBySymbol }
         val dates = Analysis.marketDates(barsBySymbol.values)
         val lastSession = dates.lastOrNull() ?: 0L
 
         // 2. Szerokość rynku we wszystkich grupach (kryterium 1)
-        progress("Analiza branż…", 0.82f)
+        progress("Analiza branż…", 0.64f)
         val groupOf: (Company) -> String = { if (cfg.grouping == GroupingLevel.SECTOR) it.sector else it.subIndustry }
         val membersByGroup = companies.groupBy(groupOf)
         val window = dates.takeLast(maxOf(cfg.breadthDays, BREADTH_WINDOW) + 1)
@@ -80,18 +83,43 @@ class ScreenerEngine(
         }
         val c1Groups = groupStats.values.filter { it.passes(cfg) }.map { it.name }.toSet()
 
-        // 3. Trend i odbicie dla każdej spółki z aktualną sesją (kryteria 2 i 4)
-        progress("Analiza trendów i formacji…", 0.86f)
-        val evals = companies.mapNotNull { c ->
+        // 3. Trend dla każdej spółki z aktualną sesją (kryterium 2)
+        progress("Analiza trendów…", 0.66f)
+        val trendEvals = companies.mapNotNull { c ->
             val bars = barsBySymbol.getValue(c.symbol)
             if (bars.lastOrNull()?.epochDay != lastSession) null
-            else StockEval(c, groupOf(c), bars, Analysis.trend(bars, cfg), Analysis.findBounce(bars, cfg))
+            else StockEval(c, groupOf(c), bars, Analysis.trend(bars, cfg), ohlc = false)
         }
+
+        // 4. Pełne świece i formacja odbicia (kryterium 4) – tylko dla spółek z branż w trendzie lub w trendzie wzrostowym
+        val needOhlc = trendEvals.filter { it.group in c1Groups || it.trend?.passed == true }
+        val ohlcDone = AtomicInteger(0)
+        val sem = Semaphore(concurrency)
+        val ohlcBySymbol: Map<String, List<Bar>> = needOhlc.map { e ->
+            async {
+                sem.withPermit {
+                    val b = try { dropIncomplete(data.ohlc(e.company.symbol), nowNy) } catch (ex: Exception) { emptyList() }
+                    val d = ohlcDone.incrementAndGet()
+                    if (d % 10 == 0 || d == needOhlc.size) {
+                        progress("Świece kandydatów: $d / ${needOhlc.size}", 0.66f + 0.22f * d / needOhlc.size)
+                    }
+                    e.company.symbol to b
+                }
+            }
+        }.awaitAll().filter { it.second.isNotEmpty() }.toMap()
+        val evals = trendEvals.map { e ->
+            val o = ohlcBySymbol[e.company.symbol]
+            if (o == null || o.last().epochDay != lastSession) e
+            else StockEval(e.company, e.group, e.trendBars, e.trend, o, Analysis.findBounce(o, cfg), ohlc = true)
+        }
+        val ohlcMissing = needOhlc.size - evals.count { it.ohlc }
+        if (ohlcMissing > 0) warnings += "Nie pobrano pełnych świec dla $ohlcMissing kandydatów."
+
         fun c1(s: StockEval) = s.group in c1Groups
         fun c2(s: StockEval) = s.trend?.passed == true
         fun c4(s: StockEval) = s.bounce != null
 
-        // 4. P/E (kryterium 3) – pobierane tylko dla potrzebnych branż
+        // 5. P/E (kryterium 3) – pobierane tylko dla potrzebnych branż
         val pe = HashMap<String, Double?>()
         val fetchedGroups = HashSet<String>()
         suspend fun fetchPe(groupNames: Set<String>) {
@@ -138,7 +166,7 @@ class ScreenerEngine(
         }
         if (peMissing > 0) warnings += "Brak P/E (lub ujemne zyski) dla $peMissing kandydatów – pominięto."
 
-        // 5. Diagnoza, gdy brak wyników
+        // 6. Diagnoza, gdy brak wyników
         var diagnosis = emptyList<CriterionDiagnosis>()
         if (recs.isEmpty()) {
             progress("Brak spółek – analiza progów…", 0.93f)

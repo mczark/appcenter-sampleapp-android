@@ -14,10 +14,27 @@ import pl.radar.spolek.domain.ScreenResult
 import pl.radar.spolek.domain.ScreenerConfig
 import java.io.File
 
+enum class UniverseMode(val label: String) {
+    ALL_US("Cały rynek USA (NYSE, Nasdaq, NYSE American)"),
+    SP500("Tylko S&P 500"),
+}
+
+/** Które spółki skanujemy. Domyślnie wszystkie akcje zwykłe notowane w USA. */
+data class UniverseFilter(
+    val mode: UniverseMode = UniverseMode.ALL_US,
+    /** Minimalna kapitalizacja w mln USD (0 = bez limitu). */
+    val minMarketCapM: Double = 0.0,
+    /** Minimalna cena akcji w USD (0 = bez limitu). */
+    val minPrice: Double = 0.0,
+    /** Tylko spółki z siedzibą w USA (bez zagranicznych notowanych w USA, np. ADR). */
+    val usOnly: Boolean = false,
+)
+
 data class AppSettings(
     val config: ScreenerConfig = ScreenerConfig(),
     val weeklyEnabled: Boolean = true,
     val fmpKey: String = "",
+    val universe: UniverseFilter = UniverseFilter(),
 )
 
 class SettingsStore(context: Context) {
@@ -45,7 +62,14 @@ class SettingsStore(context: Context) {
             maxDaysSinceRetest = p.getInt("maxDaysSinceRetest", d.maxDaysSinceRetest),
             maxResults = p.getInt("maxResults", d.maxResults),
         )
-        return AppSettings(cfg, p.getBoolean("weeklyEnabled", true), p.getString("fmpKey", "") ?: "")
+        val u = UniverseFilter(
+            mode = runCatching { UniverseMode.valueOf(p.getString("universeMode", UniverseMode.ALL_US.name)!!) }
+                .getOrDefault(UniverseMode.ALL_US),
+            minMarketCapM = dbl("minMarketCapM", 0.0),
+            minPrice = dbl("minPrice", 0.0),
+            usOnly = p.getBoolean("usOnly", false),
+        )
+        return AppSettings(cfg, p.getBoolean("weeklyEnabled", true), p.getString("fmpKey", "") ?: "", u)
     }
 
     fun save(s: AppSettings) {
@@ -69,6 +93,10 @@ class SettingsStore(context: Context) {
             .putInt("maxResults", c.maxResults)
             .putBoolean("weeklyEnabled", s.weeklyEnabled)
             .putString("fmpKey", s.fmpKey.trim())
+            .putString("universeMode", s.universe.mode.name)
+            .putFloat("minMarketCapM", s.universe.minMarketCapM.toFloat())
+            .putFloat("minPrice", s.universe.minPrice.toFloat())
+            .putBoolean("usOnly", s.universe.usOnly)
             .apply()
     }
 }
