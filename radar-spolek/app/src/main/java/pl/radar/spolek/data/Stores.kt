@@ -7,6 +7,7 @@ import pl.radar.spolek.domain.CriterionDiagnosis
 import pl.radar.spolek.domain.Direction
 import pl.radar.spolek.domain.GroupSummary
 import pl.radar.spolek.domain.HintUnit
+import pl.radar.spolek.domain.MarketBreadthDay
 import pl.radar.spolek.domain.ThresholdHint
 import pl.radar.spolek.domain.GroupingLevel
 import pl.radar.spolek.domain.Recommendation
@@ -133,6 +134,9 @@ class ResultStore(context: Context) {
                 }
             })
             .put("diagnosis", JSONArray().apply { r.diagnosis.forEach { put(encodeDiagnosis(it)) } })
+            .put("trendMeter", JSONArray().apply {
+                r.trendMeter.forEach { put(JSONArray().put(it.epochDay).put(it.advancers).put(it.decliners).put(it.unchanged)) }
+            })
         file.writeText(o.toString())
     }
 
@@ -166,6 +170,12 @@ class ResultStore(context: Context) {
             warnings = (0 until w.length()).map { w.getString(it) },
             diagnosis = o.optJSONArray("diagnosis")?.let { a -> (0 until a.length()).map { decodeDiagnosis(a.getJSONObject(it)) } }
                 ?: emptyList(),
+            trendMeter = o.optJSONArray("trendMeter")?.let { a ->
+                (0 until a.length()).map {
+                    val d = a.getJSONArray(it)
+                    MarketBreadthDay(d.getLong(0), d.getInt(1), d.getInt(2), d.getInt(3))
+                }
+            } ?: emptyList(),
         )
     }.getOrNull()
 

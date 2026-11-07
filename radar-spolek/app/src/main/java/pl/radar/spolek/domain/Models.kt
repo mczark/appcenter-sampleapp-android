@@ -102,6 +102,16 @@ data class Recommendation(
     val score: Double,
 )
 
+/** Trendomierz – jedna sesja: ile spółek wzrosło, spadło i się nie zmieniło względem poprzedniego zamknięcia. */
+data class MarketBreadthDay(
+    val epochDay: Long,
+    val advancers: Int,
+    val decliners: Int,
+    val unchanged: Int,
+) {
+    val net: Int get() = advancers - decliners
+}
+
 data class GroupSummary(
     val name: String,
     val size: Int,
@@ -123,4 +133,6 @@ data class ScreenResult(
     val warnings: List<String>,
     /** Diagnoza kryteriów – liczona, gdy brak rekomendacji. */
     val diagnosis: List<CriterionDiagnosis> = emptyList(),
+    /** Trendomierz rynku za ostatnie 2 miesiące (od najstarszej sesji). */
+    val trendMeter: List<MarketBreadthDay> = emptyList(),
 )

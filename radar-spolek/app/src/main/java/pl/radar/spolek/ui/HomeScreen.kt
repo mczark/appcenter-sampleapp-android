@@ -98,6 +98,9 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
             }
             item { RunCard(state, vm::runNow) }
             state.result?.let { r ->
+                if (r.trendMeter.isNotEmpty()) item {
+                    TrendMeterCard(r.trendMeter, "${Fmt.volume(r.withData.toLong())} skanowanych spółek")
+                }
                 item { FunnelCard(r) }
                 if (r.recommendations.isEmpty()) item {
                     EmptyCard(r) { h ->
