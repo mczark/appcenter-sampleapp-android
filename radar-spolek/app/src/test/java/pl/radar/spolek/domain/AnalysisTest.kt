@@ -80,6 +80,28 @@ class AnalysisTest {
         assertFalse(Analysis.breadth(listOf(dip, dip, up, down), dates, cfg).passed)
     }
 
+    @Test fun trendMeterCountsAdvancersAndDecliners() {
+        val a = barsFromCloses(listOf(10.0, 11.0, 12.0, 12.0))
+        val b = barsFromCloses(listOf(10.0, 9.0, 13.0, 11.0))
+        val c = barsFromCloses(listOf(10.0, 9.5, 9.0, 8.0))
+        val m = Analysis.marketBreadth(listOf(a, b, c), (20000L..20003L).toList())
+        assertEquals(3, m.size)
+        assertEquals(MarketBreadthDay(20001, 1, 2, 0), m[0]) // czerwony
+        assertEquals(MarketBreadthDay(20002, 2, 1, 0), m[1]) // zielony
+        assertEquals(MarketBreadthDay(20003, 0, 2, 1), m[2])
+        assertTrue(m[1].net > 0 && m[0].net < 0)
+    }
+
+    @Test fun trendMeterCoversTwoMonths() = runBlocking {
+        val r = ScreenerEngine(sampleMarket(), cfg, now = future).screen()
+        val first = java.time.LocalDate.ofEpochDay(r.trendMeter.first().epochDay)
+        val last = java.time.LocalDate.ofEpochDay(r.trendMeter.last().epochDay)
+        assertEquals(r.lastSessionDate, r.trendMeter.last().epochDay)
+        assertFalse(first.isBefore(last.minusMonths(2)))
+        assertTrue(first.minusDays(1).isBefore(last.minusMonths(2)))
+        assertTrue(r.trendMeter.all { it.advancers + it.decliners + it.unchanged == 7 })
+    }
+
     @Test fun dropIncompleteBar() {
         val now = ZonedDateTime.of(2026, 11, 6, 11, 0, 0, 0, ScreenerEngine.NY)
         val today = now.toLocalDate().toEpochDay()

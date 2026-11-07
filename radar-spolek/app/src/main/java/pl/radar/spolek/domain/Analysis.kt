@@ -151,6 +151,30 @@ object Analysis {
         }
     }
 
+    /**
+     * Trendomierz: dla każdej sesji z [dates] (oprócz pierwszej, która służy za punkt odniesienia) liczba spółek,
+     * których zamknięcie wzrosło, spadło lub się nie zmieniło względem poprzedniej sesji z kalendarza.
+     */
+    fun marketBreadth(series: Collection<List<Bar>>, dates: List<Long>): List<MarketBreadthDay> {
+        if (dates.size < 2) return emptyList()
+        val wanted = dates.toHashSet()
+        val adv = IntArray(dates.size); val dec = IntArray(dates.size); val unch = IntArray(dates.size)
+        for (s in series) {
+            val closes = HashMap<Long, Double>()
+            for (b in s) if (b.epochDay in wanted) closes[b.epochDay] = b.close
+            for (i in 1 until dates.size) {
+                val c = closes[dates[i]] ?: continue
+                val p = closes[dates[i - 1]] ?: continue
+                when {
+                    c > p -> adv[i]++
+                    c < p -> dec[i]++
+                    else -> unch[i]++
+                }
+            }
+        }
+        return (1 until dates.size).map { MarketBreadthDay(dates[it], adv[it], dec[it], unch[it]) }
+    }
+
     /** Ranking: siła i regularność trendu, premia za świeże odbicie. */
     fun score(trend: TrendResult, bounce: BounceSignal, barsCount: Int): Double {
         val freshness = 1.0 / (1 + (barsCount - 1 - bounce.retestIndex))

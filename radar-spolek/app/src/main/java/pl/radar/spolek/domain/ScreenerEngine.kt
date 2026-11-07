@@ -73,6 +73,15 @@ class ScreenerEngine(
         val dates = Analysis.marketDates(barsBySymbol.values)
         val lastSession = dates.lastOrNull() ?: 0L
 
+        // Trendomierz: wzrosty vs spadki wszystkich skanowanych spółek z ostatnich 2 miesięcy
+        val meterFrom = java.time.LocalDate.ofEpochDay(lastSession).minusMonths(2).toEpochDay()
+        val meterDates = dates.filter { it >= meterFrom }.let { d ->
+            // jedna sesja wcześniej jako punkt odniesienia dla pierwszego dnia
+            val prev = dates.lastOrNull { it < meterFrom }
+            if (prev != null) listOf(prev) + d else d
+        }
+        val trendMeter = Analysis.marketBreadth(barsBySymbol.values, meterDates)
+
         // 2. Szerokość rynku we wszystkich grupach (kryterium 1)
         progress("Analiza branż…", 0.64f)
         val groupOf: (Company) -> String = { if (cfg.grouping == GroupingLevel.SECTOR) it.sector else it.subIndustry }
@@ -195,6 +204,7 @@ class ScreenerEngine(
             recommendations = recs.sortedByDescending { it.score }.take(cfg.maxResults),
             warnings = warnings,
             diagnosis = diagnosis,
+            trendMeter = trendMeter,
         )
     }
 }
