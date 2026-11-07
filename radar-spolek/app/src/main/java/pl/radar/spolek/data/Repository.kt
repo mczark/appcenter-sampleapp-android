@@ -291,7 +291,7 @@ class Repository(
                     }
                 }.awaitAll()
             }
-            val missing = todo.filter { it !in out }
+            val missing = todo.filter { !out.containsKey(it) }
             if (missing.isNotEmpty()) runCatching { yahoo.basicFundamentals(missing) }.getOrNull()?.let { out.putAll(it) }
             for (s in todo) out[s]?.let { cache.put(s, encodeFund(it).put("t", now)) }
             runCatching { fundFile.writeText(cache.toString()) }
