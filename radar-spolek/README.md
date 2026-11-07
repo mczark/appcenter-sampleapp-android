@@ -29,8 +29,20 @@ Kryteria opisane słowami zamieniłem na konkretne reguły. Każdy próg można 
 |---|-----------|-------------------------------------|
 | 1 | Branża w trendzie wzrostowym od 10 dni | Grupa = podbranża GICS (albo sektor; do wyboru w ustawieniach), co najmniej 3 spółki. W **każdej** z 10 ostatnich sesji ≥ 50% spółek z grupy zamknęło się wyżej niż dzień wcześniej. |
 | 2 | Spółka w jednoznacznym trendzie wzrostowym od pół roku | Liczone na ostatnich 126 sesjach. Wszystkie trzy warunki naraz: (a) regresja liniowa ln(ceny) ma dodatnie nachylenie i R² ≥ 0,70, czyli wzrost jest regularny, a nie jednorazowym skokiem; (b) wzrost ceny ≥ 10%; (c) wyższe szczyty i wyższe dołki: maksimum i minimum zamknięć z drugiej połowy okresu (ostatnie 3 mies.) są wyższe niż z pierwszej. |
-| 3 | P/E nie wyższe niż mediana branży | P/E TTM spółki ≤ mediana dodatnich P/E spółek z tej samej grupy. Spółki ze stratą (ujemne lub brakujące P/E) są pomijane. |
+| 3 | P/E nie wyższe niż mediana branży | P/E TTM spółki ≤ mediana (× mnożnik, domyślnie 100%) dodatnich P/E spółek z tej samej grupy. Spółki ze stratą (ujemne lub brakujące P/E) są pomijane. |
 | 4 | Odbicie po korekcie do poziomu ostatniego wyraźnego szczytu z ostatniego miesiąca | Szczyt P z ostatnich 22 sesji: najwyższy high w oknie ±3 sesji, po którym cena spadła o ≥ 3% (dzięki temu jest „wyraźny”). Następnie zamknięcie powyżej P (wybicie) i nowy szczyt T. Potem korekta od T o ≥ 2%, której dołek wypada w strefie P ± 2,5%, a żadne zamknięcie nie spada poniżej tej strefy (poziom się obronił). Na koniec odbicie: ostatnie zamknięcie ≥ dołek + 1,5% i wyższe niż zamknięcie z dnia dołka, przy czym dołek był najwyżej 7 sesji temu. |
+
+## Gdy żadna spółka nie spełnia kryteriów
+
+Aplikacja pokazuje wtedy kartę dla każdego kryterium, a na niej:
+- ile spółek spełnia to kryterium niezależnie od pozostałych,
+- ile spółek spełnia trzy pozostałe kryteria i odpada tylko na tym,
+- dla każdego progu: obecną wartość i wartość, przy której pojawiłaby się co najmniej jedna rekomendacja,
+  jeśli zmienisz tylko ten jeden parametr (z przykładową spółką i przyciskiem „Ustaw”). Gdy sama zmiana progu nie wystarczy,
+  a kryterium nie spełnia żadna spółka, podana jest wartość, przy której spełniłaby je choć jedna spółka.
+
+Progi ciągłe (odsetek rosnących, R², wzrost, P/E) liczone są dokładnie. Progi formacji odbicia
+wyznacza przeszukanie wartości co 0,1 punktu procentowego lub co 1 sesję.
 
 Ranking (gdy kandydatów jest więcej niż 10): R² × ln(1 + wzrost w 6 mies.), z premią za świeższe odbicie.
 

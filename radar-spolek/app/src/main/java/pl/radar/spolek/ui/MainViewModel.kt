@@ -20,7 +20,9 @@ import pl.radar.spolek.domain.BounceSignal
 import pl.radar.spolek.domain.Recommendation
 import pl.radar.spolek.domain.ScreenResult
 import pl.radar.spolek.domain.ScreenerEngine
+import pl.radar.spolek.domain.ThresholdHint
 import pl.radar.spolek.domain.TrendResult
+import pl.radar.spolek.domain.withParam
 import pl.radar.spolek.work.Scheduler
 import pl.radar.spolek.work.ScreeningWorker
 import java.time.ZonedDateTime
@@ -101,6 +103,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _settings.value = s
         if (s.weeklyEnabled) Scheduler.scheduleWeekly(getApplication(), replace = true)
         else Scheduler.cancelWeekly(getApplication())
+    }
+
+    /** Ustawia próg z podpowiedzi diagnozy (pozostałe parametry bez zmian) i zapisuje ustawienia. */
+    fun applyHint(h: ThresholdHint) {
+        val v = h.required ?: return
+        val s = _settings.value
+        saveSettings(s.copy(config = s.config.withParam(h.key, h.rounded(v))))
     }
 
     fun loadDetail(symbol: String) {
