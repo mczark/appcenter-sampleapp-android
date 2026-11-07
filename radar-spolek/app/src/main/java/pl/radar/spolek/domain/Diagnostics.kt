@@ -49,13 +49,19 @@ data class CriterionDiagnosis(
     val note: String? = null,
 )
 
-/** Wynik oceny pojedynczej spółki (z aktualną sesją). */
+/**
+ * Wynik oceny pojedynczej spółki (z aktualną sesją).
+ * [trendBars] – długa historia zamknięć (do trendu), [bars] – pełne świece OHLC, jeśli pobrane ([ohlc] = true).
+ * Formację odbicia oceniamy tylko dla spółek z pełnymi świecami.
+ */
 class StockEval(
     val company: Company,
     val group: String,
-    val bars: List<Bar>,
+    val trendBars: List<Bar>,
     val trend: TrendResult?,
-    val bounce: BounceSignal?,
+    val bars: List<Bar> = trendBars,
+    val bounce: BounceSignal? = null,
+    val ohlc: Boolean = true,
 )
 
 /** Statystyki szerokości rynku w grupie: odsetki rosnących spółek w kolejnych sesjach (od najstarszej). */
@@ -110,6 +116,7 @@ object Diagnostics {
         val n2 = evals.count { c2(it) }
         val n3 = evals.count { c3(it) }
         val n4 = evals.count { c4(it) }
+        val ohlcCount = evals.count { it.ohlc }
         val peKnownCount = evals.count { peKnown(it) }
 
         fun hint(
@@ -159,7 +166,7 @@ object Diagnostics {
                 s.trend?.takeIf { baseOk(it) && it.r2 >= cfg.minTrendR2 && it.periodReturn < cfg.minTrendReturn }?.periodReturn
             },
             hint("trendSessions", "Długość trendu (sesje)", HintUnit.COUNT, Direction.NEAREST,
-                cfg.trendSessions.toDouble(), r2, a2) { s -> nearestTrendLength(s.bars, cfg)?.toDouble() },
+                cfg.trendSessions.toDouble(), r2, a2) { s -> nearestTrendLength(s.trendBars, cfg)?.toDouble() },
         )
 
         // ---------- Kryterium 3: P/E ----------
@@ -171,7 +178,7 @@ object Diagnostics {
         val missingPe = evals.count { c1(it) && c2(it) && c4(it) && !peKnown(it) }
 
         // ---------- Kryterium 4: odbicie (przeszukiwanie siatki wartości) ----------
-        val a4 = if (n4 == 0) evals else null
+        val a4 = if (n4 == 0) evals.filter { it.ohlc } else null
         fun grid(key: String, label: String, unit: HintUnit, dir: Direction, current: Double,
                  values: List<Double>, apply: (ScreenerConfig, Double) -> ScreenerConfig) =
             hint(key, label, unit, dir, current, r4, a4) { s ->
@@ -205,7 +212,8 @@ object Diagnostics {
             CriterionDiagnosis(2, "Spółka w trendzie wzrostowym (${cfg.trendSessions} sesji)", n2, total, r2.size, hints2),
             CriterionDiagnosis(3, "P/E nie wyższe niż mediana branży", n3, peKnownCount, r3.size, hints3,
                 note = if (missingPe > 0) "Brak P/E dla $missingPe spółek spełniających pozostałe kryteria." else null),
-            CriterionDiagnosis(4, "Odbicie po teście ostatniego szczytu", n4, total, r4.size, hints4),
+            CriterionDiagnosis(4, "Odbicie po teście ostatniego szczytu", n4, ohlcCount, r4.size, hints4,
+                note = if (ohlcCount < total) "Formację sprawdzono dla $ohlcCount spółek (w branżach w trendzie lub w trendzie wzrostowym)." else null),
         )
     }
 

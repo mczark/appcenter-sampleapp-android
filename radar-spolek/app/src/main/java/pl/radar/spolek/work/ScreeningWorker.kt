@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -15,6 +16,7 @@ import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
@@ -43,9 +45,18 @@ class ScreeningWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
         const val KEY_WEEKLY = "weekly"
     }
 
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val n = Notifications.scanning(applicationContext)
+        return if (Build.VERSION.SDK_INT >= 29) ForegroundInfo(2, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        else ForegroundInfo(2, n)
+    }
+
     override suspend fun doWork(): Result {
         val settings = SettingsStore(applicationContext).load()
-        val engine = ScreenerEngine(Repository(applicationContext, settings.fmpKey), settings.config)
+        val engine = ScreenerEngine(Repository(applicationContext, settings.fmpKey, settings.universe), settings.config)
+        // Skan całego rynku może trwać kilka minut – prosimy o pracę pierwszoplanową (powiadomienie w trakcie).
+        // Na nowszych Androidach start z tła bywa zablokowany – wtedy skan i tak idzie dalej.
+        try { setForeground(getForegroundInfo()) } catch (_: Exception) { }
         return try {
             val result = engine.screen { msg, p -> setProgress(workDataOf(KEY_MSG to msg, KEY_PROGRESS to p)) }
             ResultStore(applicationContext).save(result)
@@ -94,13 +105,24 @@ object Scheduler {
 
 object Notifications {
     private const val CHANNEL = "recommendations"
+    private const val CHANNEL_SCAN = "scan"
 
     fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL, "Rekomendacje tygodniowe", NotificationManager.IMPORTANCE_DEFAULT)
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+            val nm = context.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Rekomendacje tygodniowe", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_SCAN, "Skanowanie w toku", NotificationManager.IMPORTANCE_LOW))
         }
     }
+
+    fun scanning(context: Context): android.app.Notification =
+        NotificationCompat.Builder(context, CHANNEL_SCAN)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Radar Spółek")
+            .setContentText("Skanowanie rynku USA…")
+            .setOngoing(true)
+            .setProgress(0, 0, true)
+            .build()
 
     fun showResult(context: Context, symbols: List<String>) {
         if (Build.VERSION.SDK_INT >= 33 &&

@@ -145,7 +145,7 @@ private fun RunCard(state: HomeState, onRun: () -> Unit) {
                     Text("Skanuj teraz")
                 }
                 Text(
-                    "Automatyczne skanowanie: co sobotę rano (do zmiany w ustawieniach). Pełny skan trwa 1–3 min.",
+                    "Automatyczne skanowanie: co sobotę rano (do zmiany w ustawieniach). Skan całego rynku USA trwa kilka minut – najlepiej przez Wi-Fi.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -161,7 +161,7 @@ private fun FunnelCard(r: ScreenResult) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Lejek kryteriów", style = MaterialTheme.typography.titleSmall)
-            FunnelRow("Spółki S&P 500 z danymi", "${r.withData} / ${r.universeSize}")
+            FunnelRow("Spółki z notowaniami", "${r.withData} / ${r.universeSize}")
             FunnelRow("Branże w trendzie 10 dni", "${r.groupsPassed.size} / ${r.groupsChecked}")
             FunnelRow("…spółki w trendzie 6 mies.", "${r.trendPassed}")
             FunnelRow("…z odbiciem od szczytu", "${r.bouncePassed}")

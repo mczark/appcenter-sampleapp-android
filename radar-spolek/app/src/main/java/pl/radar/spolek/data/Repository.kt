@@ -2,6 +2,11 @@ package pl.radar.spolek.data
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,13 +15,22 @@ import pl.radar.spolek.domain.Company
 import pl.radar.spolek.domain.MarketData
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
-/** Implementacja [MarketData] z pamięcią podręczną na dysku. */
-class Repository(context: Context, private val fmpKey: String = "") : MarketData {
+/**
+ * Implementacja [MarketData] z pamięcią podręczną na dysku.
+ * Uniwersum: cały rynek USA (lista z wyszukiwarki Nasdaq) albo S&P 500 – zależnie od [filter].
+ */
+class Repository(
+    context: Context,
+    private val fmpKey: String = "",
+    private val filter: UniverseFilter = UniverseFilter(),
+) : MarketData {
     private val app = context.applicationContext
     private val yahoo = YahooClient()
     private val barsDir = File(app.cacheDir, "bars").apply { mkdirs() }
     private val universeFile = File(app.filesDir, "sp500.csv")
+    private val usFile = File(app.filesDir, "us_stocks.json")
     private val peFile = File(app.cacheDir, "pe.json")
 
     companion object {
@@ -25,11 +39,27 @@ class Repository(context: Context, private val fmpKey: String = "") : MarketData
         private const val BARS_TTL = 6 * 3600_000L
         private const val PE_TTL = 24 * 3600_000L
         private const val UNIVERSE_TTL = 7 * 24 * 3600_000L
+        private const val US_TTL = 3 * 24 * 3600_000L
+        const val NASDAQ_SCREENER_URL = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true"
+        /** Zapas: codziennie aktualizowana kopia danych z wyszukiwarki Nasdaq na GitHubie. */
+        val GITHUB_TICKERS = listOf("nasdaq", "nyse", "amex").map {
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/main/$it/${it}_full_tickers.json"
+        }
+        /** Instrumenty, które nie są akcjami zwykłymi: warranty, jednostki, prawa poboru, akcje uprzywilejowane, obligacje. */
+        private val NON_COMMON = Regex(
+            "\\b(warrants?|units?|rights?|preferred|preference|notes?|debentures?|subordinated|trust preferred|depositary shares? representing)\\b|\\d+(\\.\\d+)?%",
+            RegexOption.IGNORE_CASE,
+        )
+        private const val SPARK_BATCH = 20
+
     }
 
     // ---------- Uniwersum ----------
 
-    override suspend fun universe(): List<Company> = withContext(Dispatchers.IO) {
+    override suspend fun universe(): List<Company> =
+        if (filter.mode == UniverseMode.SP500) sp500() else allUs()
+
+    private suspend fun sp500(): List<Company> = withContext(Dispatchers.IO) {
         val fresh = universeFile.exists() && System.currentTimeMillis() - universeFile.lastModified() < UNIVERSE_TTL
         if (!fresh) {
             try {
@@ -40,6 +70,58 @@ class Repository(context: Context, private val fmpKey: String = "") : MarketData
             }
         }
         parseConstituents(universeFile.readText())
+    }
+
+    /** Wszystkie akcje notowane w USA z wyszukiwarki Nasdaq (zapas: kopia na GitHubie), po filtrach. */
+    private suspend fun allUs(): List<Company> = withContext(Dispatchers.IO) {
+        val fresh = usFile.exists() && System.currentTimeMillis() - usFile.lastModified() < US_TTL
+        if (!fresh) {
+            val rows = runCatching { fetchNasdaq() }.getOrNull()?.takeIf { it.length() > 3000 }
+                ?: runCatching { fetchGithubTickers() }.getOrNull()?.takeIf { it.length() > 3000 }
+            if (rows != null) usFile.writeText(rows.toString())
+            else if (!usFile.exists()) throw IOException("Nie udało się pobrać listy spółek z rynku USA")
+        }
+        val rows = JSONArray(usFile.readText())
+        val out = ArrayList<Company>(rows.length())
+        val seen = HashSet<String>()
+        for (i in 0 until rows.length()) {
+            val r = rows.getJSONObject(i)
+            val symbol = r.optString("symbol").trim().replace('/', '.')
+            val name = r.optString("name").trim()
+            val sector = r.optString("sector").trim()
+            val industry = r.optString("industry").trim()
+            if (symbol.isEmpty() || '^' in symbol || ' ' in symbol || !seen.add(symbol)) continue
+            if (sector.isEmpty() || industry.isEmpty()) continue // fundusze, SPAC-i bez klasyfikacji
+            if (NON_COMMON.containsMatchIn(name)) continue
+            if (filter.usOnly && r.optString("country") != "United States") continue
+            if (filter.minMarketCapM > 0 && num(r.optString("marketCap")) < filter.minMarketCapM * 1e6) continue
+            if (filter.minPrice > 0 && num(r.optString("lastsale")) < filter.minPrice) continue
+            out += Company(symbol, name, sector, industry)
+        }
+        out
+    }
+
+    private fun num(s: String): Double = s.replace("$", "").replace(",", "").trim().toDoubleOrNull() ?: 0.0
+
+    private suspend fun fetchNasdaq(): JSONArray {
+        val body = Http.get(
+            NASDAQ_SCREENER_URL,
+            headers = mapOf(
+                "Accept" to "application/json, text/plain, */*",
+                "Origin" to "https://www.nasdaq.com",
+                "Referer" to "https://www.nasdaq.com/",
+            ),
+        )
+        return JSONObject(body).getJSONObject("data").getJSONArray("rows")
+    }
+
+    private suspend fun fetchGithubTickers(): JSONArray {
+        val all = JSONArray()
+        for (url in GITHUB_TICKERS) {
+            val arr = JSONArray(Http.get(url))
+            for (i in 0 until arr.length()) all.put(arr.getJSONObject(i))
+        }
+        return all
     }
 
     suspend fun company(symbol: String): Company? =
@@ -96,6 +178,39 @@ class Repository(context: Context, private val fmpKey: String = "") : MarketData
             if (f.exists()) decodeBars(f.readText()) else throw e
         }
     }
+
+    /** Pełne świece z 6 miesięcy dla kandydatów (mniej danych niż rok). */
+    override suspend fun ohlc(symbol: String): List<Bar> = withContext(Dispatchers.IO) {
+        val f = File(barsDir, symbol.replace('/', '_') + ".6mo.json")
+        if (f.exists() && System.currentTimeMillis() - f.lastModified() < BARS_TTL) {
+            runCatching { return@withContext decodeBars(f.readText()) }
+        }
+        val bars = yahoo.dailyBars(symbol, "6mo")
+        if (bars.isNotEmpty()) f.writeText(encodeBars(bars))
+        bars
+    }
+
+    /** Zamknięcia hurtowo po 20 symboli; gdy zapytanie zbiorcze zawiedzie – pobieranie spółka po spółce. */
+    override suspend fun closes(symbols: List<String>, onProgress: suspend (Int, Int) -> Unit): Map<String, List<Bar>> =
+        coroutineScope {
+            val sem = Semaphore(4)
+            val done = AtomicInteger(0)
+            symbols.chunked(SPARK_BATCH).map { batch ->
+                async {
+                    sem.withPermit {
+                        var got = runCatching { yahoo.sparkCloses(batch) }.getOrDefault(emptyMap())
+                        if (got.size < batch.size / 2) {
+                            // fallback: pojedyncze wykresy (wolniej, ale niezawodnie)
+                            val m = HashMap(got)
+                            for (s in batch) if (s !in m) runCatching { bars(s) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { m[s] = it }
+                            got = m
+                        }
+                        onProgress(minOf(symbols.size, done.addAndGet(batch.size)), symbols.size)
+                        got
+                    }
+                }
+            }.awaitAll().fold(HashMap<String, List<Bar>>()) { acc, m -> acc.putAll(m); acc }
+        }
 
     private fun encodeBars(bars: List<Bar>): String {
         val arr = JSONArray()

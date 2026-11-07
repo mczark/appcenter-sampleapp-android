@@ -10,7 +10,10 @@ data class Bar(
     val volume: Long,
 )
 
-/** Spółka z uniwersum (S&P 500) wraz z klasyfikacją GICS. */
+/**
+ * Spółka z uniwersum wraz z klasyfikacją: dla S&P 500 – sektor i podbranża GICS,
+ * dla całego rynku USA – sektor i branża według Nasdaq.
+ */
 data class Company(
     val symbol: String,
     val name: String,
@@ -19,8 +22,8 @@ data class Company(
 )
 
 enum class GroupingLevel(val label: String) {
-    SECTOR("Sektor GICS (11 grup)"),
-    SUB_INDUSTRY("Podbranża GICS (~120 grup)"),
+    SECTOR("Sektor (11–12 grup)"),
+    SUB_INDUSTRY("Branża (~150 grup; dla S&P 500 podbranża GICS)"),
 }
 
 /**

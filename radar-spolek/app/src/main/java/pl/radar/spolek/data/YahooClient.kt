@@ -16,8 +16,8 @@ class YahooClient {
     private val crumbMutex = Mutex()
     @Volatile private var crumb: String? = null
 
-    /** Symbole z kropką (BRK.B) Yahoo zapisuje z myślnikiem (BRK-B). */
-    fun toYahoo(symbol: String) = symbol.replace('.', '-')
+    /** Symbole z kropką lub ukośnikiem (BRK.B, BRK/B) Yahoo zapisuje z myślnikiem (BRK-B). */
+    fun toYahoo(symbol: String) = symbol.replace('.', '-').replace('/', '-')
 
     suspend fun dailyBars(symbol: String, range: String = "1y"): List<Bar> {
         val url = "https://query1.finance.yahoo.com/v8/finance/chart/${enc(toYahoo(symbol))}" +
@@ -43,6 +43,60 @@ class YahooClient {
         return out
     }
 
+    /**
+     * Zamknięcia dzienne dla maks. 20 symboli jednym zapytaniem (/v8/finance/spark).
+     * Obsługuje oba spotykane formaty odpowiedzi: płaski {"AAPL": {timestamp, close}} oraz
+     * {"spark": {"result": [{symbol, response: [{timestamp, indicators.quote[0].close}]}]}}.
+     */
+    suspend fun sparkCloses(symbols: List<String>, range: String = "1y"): Map<String, List<Bar>> {
+        val back = symbols.associateBy { toYahoo(it) }
+        val joined = symbols.joinToString(",") { toYahoo(it) }
+        val base = "https://query1.finance.yahoo.com/v8/finance/spark?symbols=${enc(joined)}&range=$range&interval=1d"
+        val body = try {
+            Http.get(base)
+        } catch (e: HttpException) {
+            if (e.code != 401 && e.code != 403) throw e
+            Http.get(base + "&crumb=" + enc(ensureCrumb()))
+        }
+        val root = JSONObject(body)
+        val out = HashMap<String, List<Bar>>()
+        val spark = root.optJSONObject("spark")
+        if (spark != null) {
+            val arr = spark.optJSONArray("result") ?: return out
+            for (i in 0 until arr.length()) {
+                val r = arr.getJSONObject(i)
+                val sym = back[r.optString("symbol")] ?: continue
+                val resp = r.optJSONArray("response")?.optJSONObject(0) ?: continue
+                val ts = resp.optJSONArray("timestamp") ?: continue
+                val close = resp.optJSONObject("indicators")?.optJSONArray("quote")?.optJSONObject(0)?.optJSONArray("close") ?: continue
+                val offset = resp.optJSONObject("meta")?.optLong("gmtoffset", -18000L) ?: -18000L
+                out[sym] = closesToBars(ts, close, offset)
+            }
+        } else {
+            for (key in root.keys()) {
+                val sym = back[key] ?: continue
+                val o = root.optJSONObject(key) ?: continue
+                val ts = o.optJSONArray("timestamp") ?: continue
+                val close = o.optJSONArray("close") ?: continue
+                out[sym] = closesToBars(ts, close, -18000L)
+            }
+        }
+        return out.filterValues { it.isNotEmpty() }
+    }
+
+    private fun closesToBars(ts: org.json.JSONArray, close: org.json.JSONArray, offset: Long): List<Bar> {
+        val out = ArrayList<Bar>(ts.length())
+        for (i in 0 until minOf(ts.length(), close.length())) {
+            if (close.isNull(i)) continue
+            val c = close.getDouble(i)
+            if (c.isNaN() || c <= 0) continue
+            val day = Math.floorDiv(ts.getLong(i) + offset, 86_400L)
+            val bar = Bar(day, c, c, c, c, 0L)
+            if (out.isNotEmpty() && out.last().epochDay == day) out[out.size - 1] = bar else out.add(bar)
+        }
+        return out
+    }
+
     private suspend fun ensureCrumb(): String = crumbMutex.withLock {
         crumb?.let { return@withLock it }
         // Ustawia ciasteczko A3 (strona zwraca 404 – to normalne)
@@ -55,11 +109,11 @@ class YahooClient {
         c
     }
 
-    /** P/E (TTM) w paczkach po 40 symboli. Gdy brak trailingPE, liczymy cena / EPS TTM (tylko dla EPS > 0). */
+    /** P/E (TTM) w paczkach po 50 symboli. Gdy brak trailingPE, liczymy cena / EPS TTM (tylko dla EPS > 0). */
     suspend fun trailingPE(symbols: List<String>): Map<String, Double?> {
         val out = HashMap<String, Double?>()
         val back = symbols.associateBy { toYahoo(it) }
-        for (batch in symbols.chunked(40)) {
+        for (batch in symbols.chunked(50)) {
             val json = quoteBatch(batch.joinToString(",") { toYahoo(it) })
             val arr = json.optJSONObject("quoteResponse")?.optJSONArray("result") ?: continue
             for (i in 0 until arr.length()) {

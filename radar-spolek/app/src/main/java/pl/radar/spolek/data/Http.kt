@@ -47,12 +47,18 @@ object Http {
     }
 
     /** GET z ponawianiem przy błędach sieci oraz HTTP 429/5xx. */
-    suspend fun get(url: String, allowError: Boolean = false, retries: Int = 2): String = withContext(Dispatchers.IO) {
+    suspend fun get(
+        url: String,
+        allowError: Boolean = false,
+        retries: Int = 3,
+        headers: Map<String, String> = emptyMap(),
+    ): String = withContext(Dispatchers.IO) {
         var lastError: IOException? = null
         for (attempt in 0..retries) {
-            if (attempt > 0) delay(800L * attempt)
+            // przy limicie zapytań (429) czekamy dłużej
+            if (attempt > 0) delay(if ((lastError as? HttpException)?.code == 429) 3000L * attempt else 800L * attempt)
             try {
-                return@withContext fetchOnce(url, allowError)
+                return@withContext fetchOnce(url, allowError, headers)
             } catch (e: HttpException) {
                 if (e.code != 429 && e.code < 500) throw e
                 lastError = e
@@ -63,11 +69,12 @@ object Http {
         throw lastError ?: IOException("Błąd sieci")
     }
 
-    private fun fetchOnce(url: String, allowError: Boolean): String {
-        val req = Request.Builder().url(url)
+    private fun fetchOnce(url: String, allowError: Boolean, headers: Map<String, String>): String {
+        val b = Request.Builder().url(url)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "*/*")
-            .build()
+        headers.forEach { (k, v) -> b.header(k, v) }
+        val req = b.build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (resp.isSuccessful || allowError) return body

@@ -118,7 +118,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val rec = _home.value.result?.recommendations?.firstOrNull { it.symbol == sym }
         _detail.value = DetailState(symbol = sym, name = rec?.name ?: "", recommendation = rec)
         viewModelScope.launch {
-            val repo = Repository(getApplication(), _settings.value.fmpKey)
+            val repo = Repository(getApplication(), _settings.value.fmpKey, _settings.value.universe)
             try {
                 val bars = ScreenerEngine.dropIncomplete(repo.bars(sym), ZonedDateTime.now(ScreenerEngine.NY))
                 if (bars.isEmpty()) throw IllegalStateException("Brak notowań dla $sym")
