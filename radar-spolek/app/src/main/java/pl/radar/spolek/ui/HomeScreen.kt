@@ -58,7 +58,7 @@ import pl.radar.spolek.ui.theme.Gain
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Unit, onTrendMeter: () -> Unit = {}) {
     val state by vm.home.collectAsState()
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -99,7 +99,10 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
             item { RunCard(state, vm::runNow) }
             state.result?.let { r ->
                 if (r.trendMeter.isNotEmpty()) item {
-                    TrendMeterCard(r.trendMeter, "${Fmt.volume(r.withData.toLong())} skanowanych spółek")
+                    TrendMeterCard(
+                        r.trendMeter, "${Fmt.volume(r.withData.toLong())} skanowanych spółek",
+                        onOpenGroups = onTrendMeter,
+                    )
                 }
                 item { FunnelCard(r) }
                 if (r.recommendations.isEmpty()) item {

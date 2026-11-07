@@ -81,6 +81,12 @@ class ScreenerEngine(
             if (prev != null) listOf(prev) + d else d
         }
         val trendMeter = Analysis.marketBreadth(barsBySymbol.values, meterDates)
+        fun groupMeters(key: (Company) -> String): List<GroupMeter> =
+            companies.groupBy(key).filterKeys { it.isNotBlank() }.map { (name, members) ->
+                GroupMeter(name, members.size, Analysis.marketBreadth(members.map { barsBySymbol.getValue(it.symbol) }, meterDates))
+            }.sortedBy { it.name }
+        val industryMeters = groupMeters { it.subIndustry }
+        val sectorMeters = groupMeters { it.sector }
 
         // 2. Szerokość rynku we wszystkich grupach (kryterium 1)
         progress("Analiza branż…", 0.64f)
@@ -205,6 +211,8 @@ class ScreenerEngine(
             warnings = warnings,
             diagnosis = diagnosis,
             trendMeter = trendMeter,
+            industryMeters = industryMeters,
+            sectorMeters = sectorMeters,
         )
     }
 }
