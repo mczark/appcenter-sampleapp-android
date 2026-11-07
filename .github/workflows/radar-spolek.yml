@@ -21,6 +21,8 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: radar-spolek
@@ -47,6 +49,25 @@ jobs:
           name: radar-spolek-apk
           path: radar-spolek/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Przy pushu (nie na PR) publikujemy APK jako GitHub Release – bezpośredni link do pobrania na telefonie.
+      - name: Prepare release APK
+        if: github.event_name != 'pull_request'
+        run: cp app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/RadarSpolek-1.0.${{ github.run_number }}.apk"
+
+      - name: Publish GitHub release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: radar-spolek-v1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Radar Spółek 1.0.${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Wersja debug aplikacji Radar Spółek (Android 8.0+). Pobierz plik APK na telefonie i zainstaluj
+            (wymaga zgody na instalację z nieznanych źródeł). To narzędzie filtrujące, nie porada inwestycyjna.
+          files: radar-spolek/app/build/outputs/apk/debug/RadarSpolek-1.0.${{ github.run_number }}.apk
 
       - name: Upload reports
         if: failure()
