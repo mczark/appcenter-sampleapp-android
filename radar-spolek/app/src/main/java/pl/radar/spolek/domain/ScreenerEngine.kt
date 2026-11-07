@@ -213,6 +213,10 @@ class ScreenerEngine(
             trendMeter = trendMeter,
             industryMeters = industryMeters,
             sectorMeters = sectorMeters,
+            uptrendStocks = evals.filter { c2(it) }.map {
+                TrendStock(it.company.symbol, it.company.name, it.company.subIndustry, it.company.sector,
+                    it.trendBars.last().close, it.trend!!.r2, it.trend.periodReturn)
+            }.sortedByDescending { it.r2 },
         )
     }
 }

@@ -12,6 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import pl.radar.spolek.domain.Bar
 import pl.radar.spolek.domain.Company
+import pl.radar.spolek.domain.Fundamentals
 import pl.radar.spolek.domain.MarketData
 import java.io.File
 import java.io.IOException
@@ -261,6 +262,51 @@ class Repository(
             runCatching { peFile.writeText(cache.toString()) }
         }
         out
+    }
+
+    // ---------- Wskaźniki fundamentalne ----------
+
+    private val fundFile = File(app.cacheDir, "fundamentals.json")
+
+    /** Wskaźniki dla listy spółek (cache 24 h). quoteSummary po 4 naraz; brakujące – uproszczone z /v7/quote. */
+    suspend fun fundamentals(symbols: List<String>, onProgress: (Int, Int) -> Unit = { _, _ -> }): Map<String, Fundamentals> =
+        withContext(Dispatchers.IO) {
+            val cache = runCatching { JSONObject(fundFile.readText()) }.getOrDefault(JSONObject())
+            val now = System.currentTimeMillis()
+            val out = java.util.concurrent.ConcurrentHashMap<String, Fundamentals>()
+            val todo = symbols.filter { s ->
+                val e = cache.optJSONObject(s)
+                if (e != null && now - e.optLong("t") < PE_TTL) { out[s] = decodeFund(s, e); false } else true
+            }
+            val done = AtomicInteger(symbols.size - todo.size)
+            onProgress(done.get(), symbols.size)
+            coroutineScope {
+                val sem = Semaphore(4)
+                todo.map { s ->
+                    async {
+                        sem.withPermit {
+                            runCatching { yahoo.fundamentals(s) }.getOrNull()?.let { out[s] = it }
+                            onProgress(done.incrementAndGet(), symbols.size)
+                        }
+                    }
+                }.awaitAll()
+            }
+            val missing = todo.filter { !out.containsKey(it) }
+            if (missing.isNotEmpty()) runCatching { yahoo.basicFundamentals(missing) }.getOrNull()?.let { out.putAll(it) }
+            for (s in todo) out[s]?.let { cache.put(s, encodeFund(it).put("t", now)) }
+            runCatching { fundFile.writeText(cache.toString()) }
+            out
+        }
+
+    private fun encodeFund(f: Fundamentals): JSONObject = JSONObject().apply {
+        fun p(k: String, v: Double?) { put(k, v ?: JSONObject.NULL) }
+        p("pe", f.pe); p("fpe", f.forwardPe); p("peg", f.peg); p("pb", f.priceToBook)
+        p("roe", f.roe); p("pm", f.profitMargin); p("rg", f.revenueGrowth); p("de", f.debtToEquity)
+    }
+
+    private fun decodeFund(s: String, o: JSONObject): Fundamentals {
+        fun g(k: String) = if (!o.has(k) || o.isNull(k)) null else o.getDouble(k)
+        return Fundamentals(s, g("pe"), g("fpe"), g("peg"), g("pb"), g("roe"), g("pm"), g("rg"), g("de"))
     }
 
     private fun loadPeCache(): JSONObject =

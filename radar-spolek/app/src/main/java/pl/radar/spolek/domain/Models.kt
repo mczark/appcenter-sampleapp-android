@@ -112,6 +112,17 @@ data class MarketBreadthDay(
     val net: Int get() = advancers - decliners
 }
 
+/** Spółka w wyraźnym trendzie wzrostowym (kryterium 2) – do listy w szczegółach branży. */
+data class TrendStock(
+    val symbol: String,
+    val name: String,
+    val industry: String,
+    val sector: String,
+    val lastClose: Double,
+    val r2: Double,
+    val periodReturn: Double,
+)
+
 /** Trendomierz jednej grupy (branży lub sektora). */
 data class GroupMeter(
     val name: String,
@@ -145,4 +156,6 @@ data class ScreenResult(
     /** Trendomierze branż i sektorów (te same sesje co [trendMeter]). */
     val industryMeters: List<GroupMeter> = emptyList(),
     val sectorMeters: List<GroupMeter> = emptyList(),
+    /** Spółki w wyraźnym trendzie wzrostowym od pół roku (kryterium 2), z całego skanu. */
+    val uptrendStocks: List<TrendStock> = emptyList(),
 )

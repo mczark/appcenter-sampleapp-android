@@ -132,6 +132,9 @@ class AnalysisTest {
         assertEquals(listOf("AAA"), result.recommendations.map { it.symbol })
         assertEquals(22.5, result.recommendations[0].groupMedianPe, 1e-9)
         assertTrue(result.diagnosis.isEmpty())
+        // spółki w trendzie 6 mies. (kryterium 2) zapisane do listy branż – FFF/GGG spadają
+        assertEquals(setOf("AAA", "BBB", "CCC", "DDD", "EEE"), result.uptrendStocks.map { it.symbol }.toSet())
+        assertEquals("Tech", result.uptrendStocks.first { it.symbol == "AAA" }.industry)
     }
 
     private val future = { ZonedDateTime.now(ScreenerEngine.NY).plusYears(5) }

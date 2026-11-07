@@ -10,6 +10,7 @@ import pl.radar.spolek.domain.GroupSummary
 import pl.radar.spolek.domain.HintUnit
 import pl.radar.spolek.domain.MarketBreadthDay
 import pl.radar.spolek.domain.ThresholdHint
+import pl.radar.spolek.domain.TrendStock
 import pl.radar.spolek.domain.GroupingLevel
 import pl.radar.spolek.domain.Recommendation
 import pl.radar.spolek.domain.ScreenResult
@@ -138,6 +139,12 @@ class ResultStore(context: Context) {
             .put("trendMeter", encodeDays(r.trendMeter))
             .put("industryMeters", encodeGroups(r.industryMeters))
             .put("sectorMeters", encodeGroups(r.sectorMeters))
+            .put("uptrendStocks", JSONArray().apply {
+                r.uptrendStocks.forEach {
+                    put(JSONArray().put(it.symbol).put(it.name).put(it.industry).put(it.sector)
+                        .put(it.lastClose).put(it.r2).put(it.periodReturn))
+                }
+            })
         file.writeText(o.toString())
     }
 
@@ -174,6 +181,13 @@ class ResultStore(context: Context) {
             trendMeter = o.optJSONArray("trendMeter")?.let { decodeDays(it) } ?: emptyList(),
             industryMeters = o.optJSONArray("industryMeters")?.let { decodeGroups(it) } ?: emptyList(),
             sectorMeters = o.optJSONArray("sectorMeters")?.let { decodeGroups(it) } ?: emptyList(),
+            uptrendStocks = o.optJSONArray("uptrendStocks")?.let { a ->
+                (0 until a.length()).map {
+                    val x = a.getJSONArray(it)
+                    TrendStock(x.getString(0), x.getString(1), x.getString(2), x.getString(3),
+                        x.getDouble(4), x.getDouble(5), x.getDouble(6))
+                }
+            } ?: emptyList(),
         )
     }.getOrNull()
 

@@ -42,9 +42,16 @@ spółki bez zmian i odsetek rosnących. Dane pochodzą z zamknięć pobieranych
 dodatkowych zapytań.
 
 **Drill-down:** po dotknięciu karty (lub „Trendomierze branż ›”) otwiera się lista trendomierzy dla każdej branży,
-a po przełączeniu – dla każdego sektora. Każda grupa ma lampkę ostatniej sesji, miniaturę wykresu z 2 miesięcy i licznik
-zielonych sesji. Listę można sortować (najsilniejsze w ostatniej sesji, najwięcej zielonych sesji, nazwa) i przeszukiwać.
-Dotknięcie grupy rozwija pełny wykres ze szczegółami dnia.
+a po przełączeniu – dla każdego sektora. Domyślnie lista jest posortowana według liczby zielonych sesji w ostatnich
+2 tygodniach (10 sesji). Każda grupa ma lampkę ostatniej sesji, licznik „zielone 2 tyg.”, liczbę spółek w trendzie
+i miniaturę wykresu z 2 miesięcy (ostatnie 2 tygodnie podświetlone).
+
+**Branża:** dotknięcie grupy otwiera jej trendomierz i listę spółek w wyraźnym trendzie wzrostowym od pół roku
+(kryterium 2 z ustawień). Spółki są uszeregowane według łącznej oceny 8 wskaźników fundamentalnych z Yahoo Finance:
+P/E, Fwd P/E, PEG, P/B, D/E (im niżej, tym lepiej; wartości ujemne liczą się jako najgorsze) oraz ROE, marża netto
+i wzrost przychodów r/r (im wyżej, tym lepiej). Ocena 0–100 to średni percentyl wskaźników na tle pozostałych spółek
+z listy. Do jej policzenia potrzebne są co najmniej 3 wskaźniki. Przy każdej spółce widać wartości wszystkich
+wskaźników, pokolorowane według pozycji w grupie. Wskaźniki są pobierane na żądanie i trzymane w pamięci podręcznej przez 24 h.
 
 ## Gdy żadna spółka nie spełnia kryteriów
 

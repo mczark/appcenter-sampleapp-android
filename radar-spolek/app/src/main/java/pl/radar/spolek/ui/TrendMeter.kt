@@ -139,7 +139,10 @@ internal fun MeterChart(
     onSelect: ((Int) -> Unit)? = null,
     height: Dp = 180.dp,
     showAxis: Boolean = true,
+    /** Liczba ostatnich sesji tła wyróżnionego (0 = bez wyróżnienia). */
+    highlightLast: Int = 0,
 ) {
+    val highlight = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
     val neutral = MaterialTheme.colorScheme.outline
     val axis = MaterialTheme.colorScheme.onSurfaceVariant
     val grid = MaterialTheme.colorScheme.outlineVariant
@@ -186,6 +189,10 @@ internal fun MeterChart(
                 )
                 prevMonth = date.monthValue
             }
+        }
+        if (highlightLast > 0) {
+            val from = (days.size - highlightLast).coerceAtLeast(0)
+            drawRect(highlight, Offset(step * from, 0f), Size(step * (days.size - from), h))
         }
         // słupki
         val barW = max(2f, step * 0.7f)
