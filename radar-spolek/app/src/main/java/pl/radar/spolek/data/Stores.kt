@@ -3,7 +3,11 @@ package pl.radar.spolek.data
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import pl.radar.spolek.domain.CriterionDiagnosis
+import pl.radar.spolek.domain.Direction
 import pl.radar.spolek.domain.GroupSummary
+import pl.radar.spolek.domain.HintUnit
+import pl.radar.spolek.domain.ThresholdHint
 import pl.radar.spolek.domain.GroupingLevel
 import pl.radar.spolek.domain.Recommendation
 import pl.radar.spolek.domain.ScreenResult
@@ -31,6 +35,7 @@ class SettingsStore(context: Context) {
             trendSessions = p.getInt("trendSessions", d.trendSessions),
             minTrendR2 = dbl("minTrendR2", d.minTrendR2),
             minTrendReturn = dbl("minTrendReturn", d.minTrendReturn),
+            maxPeToMedian = dbl("maxPeToMedian", d.maxPeToMedian),
             peakLookback = p.getInt("peakLookback", d.peakLookback),
             pivotStrength = p.getInt("pivotStrength", d.pivotStrength),
             minPeakProminence = dbl("minPeakProminence", d.minPeakProminence),
@@ -53,6 +58,7 @@ class SettingsStore(context: Context) {
             .putInt("trendSessions", c.trendSessions)
             .putFloat("minTrendR2", c.minTrendR2.toFloat())
             .putFloat("minTrendReturn", c.minTrendReturn.toFloat())
+            .putFloat("maxPeToMedian", c.maxPeToMedian.toFloat())
             .putInt("peakLookback", c.peakLookback)
             .putInt("pivotStrength", c.pivotStrength)
             .putFloat("minPeakProminence", c.minPeakProminence.toFloat())
@@ -98,6 +104,7 @@ class ResultStore(context: Context) {
                         .put("bouncePct", x.bouncePct).put("score", x.score))
                 }
             })
+            .put("diagnosis", JSONArray().apply { r.diagnosis.forEach { put(encodeDiagnosis(it)) } })
         file.writeText(o.toString())
     }
 
@@ -129,6 +136,46 @@ class ResultStore(context: Context) {
                 )
             },
             warnings = (0 until w.length()).map { w.getString(it) },
+            diagnosis = o.optJSONArray("diagnosis")?.let { a -> (0 until a.length()).map { decodeDiagnosis(a.getJSONObject(it)) } }
+                ?: emptyList(),
         )
     }.getOrNull()
+
+    private fun JSONObject.putOpt2(key: String, v: Any?): JSONObject = put(key, v ?: JSONObject.NULL)
+    private fun JSONObject.optDoubleOrNull(key: String): Double? = if (isNull(key) || !has(key)) null else getDouble(key)
+    private fun JSONObject.optStringOrNull(key: String): String? = if (isNull(key) || !has(key)) null else getString(key)
+
+    private fun encodeDiagnosis(d: CriterionDiagnosis): JSONObject = JSONObject()
+        .put("number", d.number).put("title", d.title)
+        .put("passedAlone", d.passedAlone).put("outOf", d.outOf).put("blockedOnlyByThis", d.blockedOnlyByThis)
+        .putOpt2("note", d.note)
+        .put("hints", JSONArray().apply {
+            d.hints.forEach { h ->
+                put(JSONObject()
+                    .put("key", h.key).put("label", h.label).put("unit", h.unit.name).put("direction", h.direction.name)
+                    .put("current", h.current)
+                    .putOpt2("required", h.required).putOpt2("example", h.example)
+                    .putOpt2("aloneRequired", h.aloneRequired).putOpt2("aloneExample", h.aloneExample))
+            }
+        })
+
+    private fun decodeDiagnosis(o: JSONObject): CriterionDiagnosis {
+        val hs = o.getJSONArray("hints")
+        return CriterionDiagnosis(
+            number = o.getInt("number"), title = o.getString("title"),
+            passedAlone = o.getInt("passedAlone"), outOf = o.getInt("outOf"),
+            blockedOnlyByThis = o.getInt("blockedOnlyByThis"),
+            hints = (0 until hs.length()).map {
+                val h = hs.getJSONObject(it)
+                ThresholdHint(
+                    key = h.getString("key"), label = h.getString("label"),
+                    unit = HintUnit.valueOf(h.getString("unit")), direction = Direction.valueOf(h.getString("direction")),
+                    current = h.getDouble("current"),
+                    required = h.optDoubleOrNull("required"), example = h.optStringOrNull("example"),
+                    aloneRequired = h.optDoubleOrNull("aloneRequired"), aloneExample = h.optStringOrNull("aloneExample"),
+                )
+            },
+            note = o.optStringOrNull("note"),
+        )
+    }
 }

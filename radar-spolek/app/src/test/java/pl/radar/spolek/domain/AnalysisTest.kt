@@ -89,6 +89,58 @@ class AnalysisTest {
     }
 
     @Test fun engineEndToEnd() = runBlocking {
+        val result = ScreenerEngine(sampleMarket(), cfg, now = future).screen()
+        assertEquals(listOf("Tech"), result.groupsPassed.map { it.name })
+        // AAA: P/E 15 ≤ mediana(15,40,20,25)=22.5 → OK; BBB: 40 > 22.5 → odrzucona
+        assertEquals(listOf("AAA"), result.recommendations.map { it.symbol })
+        assertEquals(22.5, result.recommendations[0].groupMedianPe, 1e-9)
+        assertTrue(result.diagnosis.isEmpty())
+    }
+
+    private val future = { ZonedDateTime.now(ScreenerEngine.NY).plusYears(5) }
+
+    private fun hint(r: ScreenResult, key: String) = r.diagnosis.flatMap { it.hints }.first { it.key == key }
+
+    @Test fun diagnosisBreadthThreshold() = runBlocking {
+        // przy progu 60% branża Tech (min. 50% rosnących) odpada → brak wyników
+        val r = ScreenerEngine(sampleMarket(), cfg.copy(breadthThreshold = 0.6), now = future).screen()
+        assertTrue(r.recommendations.isEmpty())
+        val c1 = r.diagnosis.first { it.number == 1 }
+        assertEquals(0, c1.passedAlone)
+        assertEquals(2, c1.blockedOnlyByThis) // AAA (Tech) i EEE (Oil) spełniają 2, 3 i 4
+        val h = hint(r, "breadthThreshold")
+        assertEquals(0.5, h.required!!, 1e-9)
+        assertEquals("AAA", h.example)
+        // liczba sesji: przy 60% Tech spełnia warunek tylko w 2 ostatnich sesjach
+        assertEquals(2.0, hint(r, "breadthDays").required!!, 1e-9)
+        // zmiana progów trendu czy odbicia nic nie da – blokuje branża
+        assertNull(hint(r, "minTrendR2").required)
+        assertNull(hint(r, "minBounce").required)
+        // po zastosowaniu podpowiedzi pojawia się rekomendacja
+        val fixed = cfg.copy(breadthThreshold = 0.6).withParam(h.key, h.rounded(h.required!!))
+        assertEquals(listOf("AAA"), ScreenerEngine(sampleMarket(), fixed, now = future).screen().recommendations.map { it.symbol })
+    }
+
+    @Test fun diagnosisPe() = runBlocking {
+        val r = ScreenerEngine(sampleMarket(), cfg.copy(maxPeToMedian = 0.5), now = future).screen()
+        assertTrue(r.recommendations.isEmpty())
+        val h = hint(r, "maxPeToMedian")
+        assertEquals(15.0 / 22.5, h.required!!, 1e-9)
+        assertEquals(0.667, h.rounded(h.required!!), 1e-9)
+        assertEquals(2, r.diagnosis.first { it.number == 3 }.blockedOnlyByThis) // AAA i BBB
+    }
+
+    @Test fun diagnosisBounce() = runBlocking {
+        // minimalne odbicie 5% – AAA odbiła ok. 2,5% od dołka
+        val r = ScreenerEngine(sampleMarket(), cfg.copy(minBounce = 0.05), now = future).screen()
+        assertTrue(r.recommendations.isEmpty())
+        val h = hint(r, "minBounce")
+        assertNotNull(h.required)
+        val fixed = cfg.copy(minBounce = 0.05).withParam(h.key, h.rounded(h.required!!))
+        assertEquals(listOf("AAA"), ScreenerEngine(sampleMarket(), fixed, now = future).screen().recommendations.map { it.symbol })
+    }
+
+    private fun sampleMarket(): MarketData {
         val good = bouncePattern()
         val n = good.size
         // grupa „Tech”: 4 spółki w trendzie z formacją; ostatnie 10 dni rosną (wzorzec ma 2 spadki → nadpisujemy grupę tak, by większość rosła)
@@ -107,15 +159,10 @@ class AnalysisTest {
             "EEE" to good, "FFF" to (0 until n).map { 80.0 - it * 0.1 }, "GGG" to (0 until n).map { 80.0 - it * 0.1 },
         )
         val pe = mapOf("AAA" to 15.0, "BBB" to 40.0, "CCC" to 20.0, "DDD" to 25.0, "EEE" to 5.0, "FFF" to 9.0, "GGG" to 9.0)
-        val fake = object : MarketData {
+        return object : MarketData {
             override suspend fun universe() = companies
             override suspend fun bars(symbol: String) = barsFromCloses(series.getValue(symbol))
             override suspend fun peRatios(symbols: List<String>) = symbols.associateWith { pe[it] }
         }
-        val result = ScreenerEngine(fake, cfg, now = { ZonedDateTime.now(ScreenerEngine.NY).plusYears(5) }).screen()
-        assertEquals(listOf("Tech"), result.groupsPassed.map { it.name })
-        // AAA: P/E 15 ≤ mediana(15,40,20,25)=22.5 → OK; BBB: 40 > 22.5 → odrzucona
-        assertEquals(listOf("AAA"), result.recommendations.map { it.symbol })
-        assertEquals(22.5, result.recommendations[0].groupMedianPe, 1e-9)
     }
 }

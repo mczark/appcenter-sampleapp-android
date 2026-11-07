@@ -85,7 +85,10 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             NumField("Min. R² regresji (0–1)", fields, "minTrendR2", ::update)
             NumField("Min. wzrost w okresie (%)", fields, "minTrendReturn", ::update)
 
-            Section("3. Odbicie od szczytu")
+            Section("3. Wycena")
+            NumField("Maks. P/E jako % mediany branży (100 = mediana)", fields, "maxPeToMedian", ::update)
+
+            Section("4. Odbicie od szczytu")
             NumField("Szczyt nie starszy niż (sesje; 22 ≈ 1 mies.)", fields, "peakLookback", ::update)
             NumField("Siła szczytu (sesje z każdej strony)", fields, "pivotStrength", ::update)
             NumField("Min. cofnięcie po szczycie, by był wyraźny (%)", fields, "minPeakProminence", ::update)
@@ -137,7 +140,7 @@ private fun NumField(label: String, fields: Map<String, String>, key: String, on
     )
 }
 
-private val percentKeys = setOf("breadthThreshold", "minTrendReturn", "minPeakProminence", "retestTolerance", "minCorrection", "minBounce")
+private val percentKeys = setOf("breadthThreshold", "minTrendReturn", "maxPeToMedian", "minPeakProminence", "retestTolerance", "minCorrection", "minBounce")
 
 private fun trimNum(d: Double): String = if (d == Math.floor(d)) d.toLong().toString() else "%.2f".format(java.util.Locale.US, d).trimEnd('0').trimEnd('.')
 
@@ -150,6 +153,7 @@ private fun fieldsFrom(c: ScreenerConfig): Map<String, String> {
         "trendSessions" to c.trendSessions.toString(),
         "minTrendR2" to trimNum(c.minTrendR2),
         "minTrendReturn" to p(c.minTrendReturn),
+        "maxPeToMedian" to p(c.maxPeToMedian),
         "peakLookback" to c.peakLookback.toString(),
         "pivotStrength" to c.pivotStrength.toString(),
         "minPeakProminence" to p(c.minPeakProminence),
@@ -170,12 +174,13 @@ private fun configFrom(m: Map<String, String>, grouping: GroupingLevel): Screene
     fun int(k: String, def: Int, min: Int, max: Int) = (m[k]?.toDoubleOrNull()?.toInt() ?: def).coerceIn(min, max)
     return ScreenerConfig(
         grouping = grouping,
-        minGroupSize = int("minGroupSize", d.minGroupSize, 2, 100),
+        minGroupSize = int("minGroupSize", d.minGroupSize, 1, 100),
         breadthDays = int("breadthDays", d.breadthDays, 1, 60),
         breadthThreshold = dbl("breadthThreshold", d.breadthThreshold).coerceIn(0.0, 1.0),
-        trendSessions = int("trendSessions", d.trendSessions, 20, 240),
+        trendSessions = int("trendSessions", d.trendSessions, 40, 240),
         minTrendR2 = dbl("minTrendR2", d.minTrendR2).coerceIn(0.0, 1.0),
         minTrendReturn = dbl("minTrendReturn", d.minTrendReturn),
+        maxPeToMedian = dbl("maxPeToMedian", d.maxPeToMedian).coerceIn(0.1, 10.0),
         peakLookback = int("peakLookback", d.peakLookback, 5, 120),
         pivotStrength = int("pivotStrength", d.pivotStrength, 1, 10),
         minPeakProminence = dbl("minPeakProminence", d.minPeakProminence),

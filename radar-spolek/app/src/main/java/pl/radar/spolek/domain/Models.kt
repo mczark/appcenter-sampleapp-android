@@ -40,6 +40,8 @@ data class ScreenerConfig(
     val trendSessions: Int = 126,
     val minTrendR2: Double = 0.70,
     val minTrendReturn: Double = 0.10,
+    // Kryterium 3: P/E ≤ maxPeToMedian × mediana branży (1.0 = dokładnie mediana)
+    val maxPeToMedian: Double = 1.0,
     // Kryterium 4
     val peakLookback: Int = 22,
     val pivotStrength: Int = 3,
@@ -116,4 +118,6 @@ data class ScreenResult(
     val peMissing: Int,
     val recommendations: List<Recommendation>,
     val warnings: List<String>,
+    /** Diagnoza kryteriów – liczona, gdy brak rekomendacji. */
+    val diagnosis: List<CriterionDiagnosis> = emptyList(),
 )

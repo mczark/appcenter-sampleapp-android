@@ -131,10 +131,15 @@ object Analysis {
      * [dates] – ostatnie breadthDays+1 dat kalendarza rynku.
      */
     fun breadth(members: List<List<Bar>>, dates: List<Long>, cfg: ScreenerConfig): BreadthResult {
+        val ratios = breadthRatios(members, dates)
+        val ok = dates.size == cfg.breadthDays + 1 && ratios.all { it != null && it >= cfg.breadthThreshold }
+        return BreadthResult(ok, ratios.map { it ?: 0.0 })
+    }
+
+    /** Odsetek rosnących spółek grupy w kolejnych sesjach z [dates] (null = brak danych tego dnia). */
+    fun breadthRatios(members: List<List<Bar>>, dates: List<Long>): List<Double?> {
         val maps = members.map { s -> s.associate { it.epochDay to it.close } }
-        val ratios = ArrayList<Double>()
-        var ok = dates.size == cfg.breadthDays + 1
-        for (d in 1 until dates.size) {
+        return (1 until dates.size).map { d ->
             var up = 0; var total = 0
             for (m in maps) {
                 val c = m[dates[d]] ?: continue
@@ -142,11 +147,8 @@ object Analysis {
                 total++
                 if (c > p) up++
             }
-            val ratio = if (total == 0) 0.0 else up.toDouble() / total
-            ratios.add(ratio)
-            if (total == 0 || ratio < cfg.breadthThreshold) ok = false
+            if (total == 0) null else up.toDouble() / total
         }
-        return BreadthResult(ok, ratios)
     }
 
     /** Ranking: siła i regularność trendu, premia za świeże odbicie. */

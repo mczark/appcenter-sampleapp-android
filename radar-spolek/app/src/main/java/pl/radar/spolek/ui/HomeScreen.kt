@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -41,11 +42,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import pl.radar.spolek.domain.CriterionDiagnosis
+import pl.radar.spolek.domain.HintUnit
 import pl.radar.spolek.domain.Recommendation
+import pl.radar.spolek.domain.ThresholdHint
+import pl.radar.spolek.ui.theme.Loss
 import pl.radar.spolek.domain.ScreenResult
 import pl.radar.spolek.ui.theme.Gain
 
@@ -55,6 +62,7 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
     val state by vm.home.collectAsState()
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -91,7 +99,12 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
             item { RunCard(state, vm::runNow) }
             state.result?.let { r ->
                 item { FunnelCard(r) }
-                if (r.recommendations.isEmpty()) item { EmptyCard(r) }
+                if (r.recommendations.isEmpty()) item {
+                    EmptyCard(r) { h ->
+                        vm.applyHint(h)
+                        Toast.makeText(ctx, "Ustawiono: ${h.label}. Uruchom skanowanie ponownie.", Toast.LENGTH_LONG).show()
+                    }
+                }
                 else {
                     item {
                         Text("Rekomendacje (${r.recommendations.size})", style = MaterialTheme.typography.titleMedium)
@@ -166,22 +179,100 @@ private fun FunnelRow(label: String, value: String) {
 }
 
 @Composable
-private fun EmptyCard(r: ScreenResult) {
+private fun EmptyCard(r: ScreenResult, onApply: (ThresholdHint) -> Unit) = Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Brak spółek spełniających wszystkie kryteria", style = MaterialTheme.typography.titleSmall)
             Text(
-                "To normalne – kryteria są restrykcyjne i wymagają jednoczesnego spełnienia czterech warunków. " +
-                    "Progi można złagodzić w ustawieniach.",
+                "Poniżej status każdego kryterium. Przy każdym progu podana jest wartość, przy której pojawiłaby się " +
+                    "co najmniej jedna spółka, jeśli zmienisz tylko ten jeden parametr.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (r.groupsPassed.isNotEmpty()) {
-                HorizontalDivider()
-                Text("Branże w trendzie wzrostowym:", style = MaterialTheme.typography.bodyMedium)
-                r.groupsPassed.take(15).forEach {
-                    Text("• ${it.name} (${it.size} spółek, min. ${Fmt.pct(it.minRatio, false)} rosnących)", style = MaterialTheme.typography.bodySmall)
+            if (r.diagnosis.isEmpty()) {
+                Text("Uruchom skanowanie ponownie, aby zobaczyć diagnozę progów.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+    r.diagnosis.forEach { d -> CriterionCard(d, r, onApply) }
+}
+
+@Composable
+private fun CriterionCard(d: CriterionDiagnosis, r: ScreenResult, onApply: (ThresholdHint) -> Unit) {
+    val ok = d.passedAlone > 0
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (ok) "✓" else "✗",
+                    color = if (ok) Gain else Loss,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Text("${d.number}. ${d.title}", style = MaterialTheme.typography.titleSmall)
+            }
+            val alone = when {
+                d.number == 1 && ok -> "Spełnia ${d.passedAlone} z ${d.outOf} spółek (${r.groupsPassed.size} branż)."
+                d.number == 3 -> if (d.outOf == 0) "Brak danych P/E do oceny." else "Spełnia ${d.passedAlone} z ${d.outOf} spółek z pobranym P/E."
+                ok -> "Spełnia ${d.passedAlone} z ${d.outOf} spółek (niezależnie od pozostałych kryteriów)."
+                else -> "Nie spełnia żadna z ${d.outOf} spółek."
+            }
+            Text(alone, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (d.blockedOnlyByThis > 0) "Blokuje ${d.blockedOnlyByThis} spółek, które spełniają pozostałe trzy kryteria."
+                else "Żadna spółka nie odpada wyłącznie na tym kryterium.",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (d.blockedOnlyByThis > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            d.note?.let { Text("⚠ $it", style = MaterialTheme.typography.bodySmall) }
+            HorizontalDivider()
+            d.hints.forEach { h -> HintRow(h, onApply) }
+        }
+    }
+}
+
+private fun ThresholdHint.fmt(v: Double): String = when (unit) {
+    HintUnit.PERCENT -> Fmt.num(rounded(v) * 100, 1) + "%"
+    HintUnit.DECIMAL -> Fmt.num(rounded(v), 2)
+    HintUnit.COUNT -> rounded(v).toLong().toString()
+}
+
+@Composable
+private fun HintRow(h: ThresholdHint, onApply: (ThresholdHint) -> Unit) {
+    val req = h.required
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(h.label, style = MaterialTheme.typography.bodyMedium)
+            val currentTxt = when (h.unit) {
+                HintUnit.PERCENT -> Fmt.num(h.current * 100, 1) + "%"
+                HintUnit.DECIMAL -> Fmt.num(h.current, 2)
+                HintUnit.COUNT -> h.current.toLong().toString()
+            }
+            if (req != null) {
+                Text(
+                    "obecnie $currentTxt → wystarczy ${h.fmt(req)}" + (h.example?.let { " (np. $it)" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            } else {
+                Text(
+                    "obecnie $currentTxt – sama zmiana tego progu nie da wyniku",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                h.aloneRequired?.let {
+                    Text(
+                        "kryterium spełniłaby choć jedna spółka przy ${h.fmt(it)}" + (h.aloneExample?.let { s -> " (np. $s)" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
+        }
+        if (req != null) {
+            TextButton(onClick = { onApply(h) }) { Text("Ustaw") }
         }
     }
 }
