@@ -17,6 +17,10 @@ Gradle i kliknij Run. Wymagania: Android Studio Ladybug lub nowsze, JDK 17, Andr
 uruchomi testy i zbuduje APK. Gotowy plik pobierzesz z zakładki Actions → ostatni przebieg → Artifacts.
 Na telefonie trzeba zezwolić na instalację z nieznanych źródeł.
 
+**Podpis:** po pushu na `master` workflow buduje wersję release podpisaną kluczem z sekretów repozytorium
+(`RELEASE_KEYSTORE_BASE64`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`, te same co
+dla `invoice-scanner`) i publikuje ją w zakładce Releases. Własny numer wersji nadasz tagiem `radar-spolek-v1.2.3`.
+
 ## Jak dokładnie liczone są kryteria
 
 Kryteria opisane słowami zamieniłem na konkretne reguły. Każdy próg można zmienić w Ustawieniach.

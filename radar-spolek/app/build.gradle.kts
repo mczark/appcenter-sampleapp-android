@@ -12,15 +12,30 @@ android {
         applicationId = "pl.radar.spolek"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // W CI numer wersji pochodzi z numeru przebiegu, żeby każda wersja była wyższa od poprzedniej.
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("VERSION_NAME") ?: "1.0"
+    }
+
+    // Klucz do podpisu wersji release podawany przez zmienne środowiskowe (sekrety GitHub Actions,
+    // te same co dla invoice-scanner). Bez nich build release powstaje niepodpisany.
+    val releaseKeystore = System.getenv("RELEASE_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // dla wygody podpisywane kluczem debug – przed publikacją w sklepie podmień na własny
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
