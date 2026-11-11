@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -45,14 +46,14 @@ import kotlin.math.abs
 import kotlin.math.max
 
 internal fun meterColor(d: MarketBreadthDay, neutral: Color) = when {
-    d.net > 0 -> Gain
-    d.net < 0 -> Loss
+    d.isGreen -> Gain
+    d.isRed -> Loss
     else -> neutral
 }
 
 /**
- * Trendomierz: liczba spółek rosnących względem spadających w kolejnych sesjach z ostatnich 2 miesięcy.
- * Słupek = wzrosty − spadki; zielony, gdy wzrosło więcej spółek niż spadło, czerwony – gdy odwrotnie.
+ * Trendomierz: odsetek spółek rosnących w kolejnych sesjach z ostatnich 2 miesięcy.
+ * Słupek zielony, gdy wzrosło co najmniej 50% spółek, czerwony – gdy mniej niż 50%.
  */
 @Composable
 fun TrendMeterCard(days: List<MarketBreadthDay>, universeLabel: String, onOpenGroups: (() -> Unit)? = null) {
@@ -61,8 +62,8 @@ fun TrendMeterCard(days: List<MarketBreadthDay>, universeLabel: String, onOpenGr
     var selected by remember(days) { mutableStateOf(days.size - 1) }
     val d = days[selected.coerceIn(days.indices)]
     val last = days.last()
-    val greens = days.count { it.net > 0 }
-    val reds = days.count { it.net < 0 }
+    val greens = days.count { it.isGreen }
+    val reds = days.count { it.isRed }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -75,9 +76,9 @@ fun TrendMeterCard(days: List<MarketBreadthDay>, universeLabel: String, onOpenGr
                     Text("Trendomierz", style = MaterialTheme.typography.titleMedium)
                     Text(
                         when {
-                            last.net > 0 -> "Zielony – w ostatniej sesji więcej spółek wzrosło niż spadło"
-                            last.net < 0 -> "Czerwony – w ostatniej sesji więcej spółek spadło niż wzrosło"
-                            else -> "Neutralny – tyle samo wzrostów co spadków"
+                            last.isGreen -> "Zielony – w ostatniej sesji wzrosło ${Fmt.pct(last.advancingShare ?: 0.0, false)} spółek (≥ 50%)"
+                            last.isRed -> "Czerwony – w ostatniej sesji wzrosło tylko ${Fmt.pct(last.advancingShare ?: 0.0, false)} spółek (< 50%)"
+                            else -> "Brak danych z ostatniej sesji"
                         },
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -86,15 +87,14 @@ fun TrendMeterCard(days: List<MarketBreadthDay>, universeLabel: String, onOpenGr
             }
 
             Text(
-                "${Fmt.day(d.epochDay)}:  ▲ ${Fmt.volume(d.advancers.toLong())}   ▼ ${Fmt.volume(d.decliners.toLong())}" +
-                    "   bez zmian ${Fmt.volume(d.unchanged.toLong())}",
+                "${Fmt.day(d.epochDay)}:  rosło ${Fmt.pct(d.advancingShare ?: 0.0, signed = false)}" +
+                    "   (▲ ${Fmt.volume(d.advancers.toLong())}  ▼ ${Fmt.volume(d.decliners.toLong())}  bez zmian ${Fmt.volume(d.unchanged.toLong())})",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = meterColor(d, MaterialTheme.colorScheme.onSurface),
             )
-            val share = if (d.advancers + d.decliners > 0) d.advancers.toDouble() / (d.advancers + d.decliners) else 0.5
             Text(
-                "Rosnące stanowiły ${Fmt.pct(share, signed = false)} spółek, które zmieniły cenę (różnica ${if (d.net > 0) "+" else ""}${d.net}).",
+                "Odsetek liczony od ${Fmt.volume(d.total.toLong())} spółek z notowaniem tego dnia.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -102,8 +102,8 @@ fun TrendMeterCard(days: List<MarketBreadthDay>, universeLabel: String, onOpenGr
             MeterChart(days, selected, onSelect = { selected = it })
 
             Text(
-                "Ostatnie 2 miesiące: $greens sesji zielonych, $reds czerwonych. Słupek = spółki rosnące − spadające " +
-                    "($universeLabel). Dotknij słupka, by zobaczyć szczegóły dnia.",
+                "Ostatnie 2 miesiące: $greens sesji zielonych, $reds czerwonych. Słupek = % spółek rosnących " +
+                    "($universeLabel); linia przerywana = 50%. Dotknij słupka, by zobaczyć szczegóły dnia.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -165,18 +165,21 @@ internal fun MeterChart(
         val bottom = if (showAxis) 18.dp.toPx() else 0f
         val w = size.width - lw
         val h = size.height - bottom
-        val maxAbs = max(1, days.maxOf { abs(it.net) }).toFloat()
-        val mid = h / 2
-        fun y(v: Int) = mid - (v / maxAbs) * (h / 2 - 4f)
+        // oś Y: 0–100% spółek rosnących
+        fun y(share: Double) = (h - share * (h - 4f)).toFloat()
         val step = w / days.size
         val text = Paint().apply { color = axis.toArgb(); textSize = 10.dp.toPx(); isAntiAlias = true }
 
-        // siatka: +max, 0, -max
-        for (v in listOf(maxAbs.toInt(), 0, -maxAbs.toInt())) {
-            if (!showAxis && v != 0) continue
+        for (v in listOf(1.0, 0.5, 0.0)) {
+            if (!showAxis && v != 0.5) continue
             val yy = y(v)
-            drawLine(if (v == 0) axis else grid, Offset(0f, yy), Offset(w, yy), strokeWidth = if (v == 0) 1.5f else 1f)
-            if (showAxis) drawContext.canvas.nativeCanvas.drawText((if (v > 0) "+" else "") + v, w + 6.dp.toPx(), yy + 4.dp.toPx(), text)
+            if (v == 0.5) {
+                drawLine(axis, Offset(0f, yy), Offset(w, yy), strokeWidth = 1.5f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f)))
+            } else {
+                drawLine(grid, Offset(0f, yy), Offset(w, yy), strokeWidth = 1f)
+            }
+            if (showAxis) drawContext.canvas.nativeCanvas.drawText("${(v * 100).toInt()}%", w + 6.dp.toPx(), yy + 4.dp.toPx(), text)
         }
         // etykiety miesięcy
         var prevMonth = -1
@@ -199,7 +202,8 @@ internal fun MeterChart(
         days.forEachIndexed { i, d ->
             val c = meterColor(d, neutral)
             val x = step * i + (step - barW) / 2
-            val top = minOf(y(d.net), mid); val bot = maxOf(y(d.net), mid)
+            val share = d.advancingShare ?: return@forEachIndexed
+            val top = y(share); val bot = y(0.0)
             drawRect(c.copy(alpha = if (selected == null || i == selected) 1f else 0.8f), Offset(x, top), Size(barW, max(2f, bot - top)))
         }
         // zaznaczenie

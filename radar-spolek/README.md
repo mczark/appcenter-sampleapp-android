@@ -42,11 +42,12 @@ Finance, ładują się przy otwarciu aplikacji niezależnie od skanu i są trzym
 
 ## Trendomierz
 
-Trendomierz to liczba spółek rosnących względem spadających. Dla każdej sesji z ostatnich 2 miesięcy aplikacja liczy,
-ile skanowanych spółek zamknęło się wyżej, a ile niżej niż na poprzedniej sesji. Na wykresie słupek pokazuje różnicę
-(wzrosty − spadki): jest **zielony**, gdy wzrosło więcej spółek niż spadło, i **czerwony**, gdy spadło więcej.
-„Lampka” u góry karty pokazuje kolor ostatniej sesji. Po dotknięciu słupka widać szczegóły dnia: wzrosty, spadki,
-spółki bez zmian i odsetek rosnących. Dane pochodzą z zamknięć pobieranych w trakcie skanu, więc nie wymagają
+Trendomierz pokazuje odsetek spółek rosnących. Dla każdej sesji z ostatnich 2 miesięcy aplikacja liczy, jaki procent
+skanowanych spółek z notowaniem tego dnia zamknął się wyżej niż na poprzedniej sesji. Spółki bez zmian liczą się do
+mianownika. Słupek (oś 0–100%, linia przerywana na 50%) jest **zielony**, gdy wzrosło co najmniej 50% spółek, i **czerwony**,
+gdy mniej niż 50%. Ta sama reguła decyduje o kolorze lampek i liczbie „zielonych sesji” przy sortowaniu branż.
+„Lampka” u góry karty pokazuje kolor ostatniej sesji. Po dotknięciu słupka widać szczegóły dnia: odsetek rosnących,
+liczbę wzrostów, spadków i spółek bez zmian. Dane pochodzą z zamknięć pobieranych w trakcie skanu, więc nie wymagają
 dodatkowych zapytań.
 
 **Drill-down:** po dotknięciu karty (lub „Trendomierze branż ›”) otwiera się lista trendomierzy dla każdej branży,

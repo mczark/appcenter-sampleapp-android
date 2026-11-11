@@ -131,7 +131,7 @@ private fun GroupMeterCard(days: List<pl.radar.spolek.domain.MarketBreadthDay>, 
     val neutral = MaterialTheme.colorScheme.outline
     var selected by remember(days) { mutableStateOf(days.size - 1) }
     val d = days[selected.coerceIn(days.indices)]
-    val green2w = days.takeLast(10).count { it.net > 0 }
+    val green2w = days.takeLast(10).count { it.isGreen }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,13 +139,13 @@ private fun GroupMeterCard(days: List<pl.radar.spolek.domain.MarketBreadthDay>, 
                 Column(Modifier.padding(start = 10.dp)) {
                     Text("Trendomierz grupy ($size spółek)", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Zielone sesje: $green2w/${minOf(10, days.size)} w 2 tyg., ${days.count { it.net > 0 }}/${days.size} w 2 mies.",
+                        "Zielone sesje: $green2w/${minOf(10, days.size)} w 2 tyg., ${days.count { it.isGreen }}/${days.size} w 2 mies.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
             Text(
-                "${Fmt.day(d.epochDay)}:  ▲ ${d.advancers}   ▼ ${d.decliners}   bez zmian ${d.unchanged}",
+                "${Fmt.day(d.epochDay)}:  rosło ${Fmt.pct(d.advancingShare ?: 0.0, false)}  (▲ ${d.advancers}  ▼ ${d.decliners}  bez zmian ${d.unchanged})",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = meterColor(d, MaterialTheme.colorScheme.onSurface),

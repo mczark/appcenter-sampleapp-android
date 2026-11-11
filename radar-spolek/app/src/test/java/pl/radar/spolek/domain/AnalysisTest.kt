@@ -92,6 +92,20 @@ class AnalysisTest {
         assertTrue(m[1].net > 0 && m[0].net < 0)
     }
 
+    @Test fun trendMeterShareAndColorThreshold() {
+        // 5 z 10 rosło → dokładnie 50% → zielony
+        assertTrue(MarketBreadthDay(1, 5, 3, 2).isGreen)
+        assertEquals(0.5, MarketBreadthDay(1, 5, 3, 2).advancingShare!!, 1e-9)
+        // więcej wzrostów niż spadków, ale przez spółki bez zmian < 50% wszystkich → czerwony
+        val d = MarketBreadthDay(1, 4, 3, 3)
+        assertTrue(d.net > 0)
+        assertTrue(d.isRed && !d.isGreen)
+        // brak danych – ani zielony, ani czerwony
+        val empty = MarketBreadthDay(1, 0, 0, 0)
+        assertNull(empty.advancingShare)
+        assertFalse(empty.isGreen || empty.isRed)
+    }
+
     @Test fun trendMeterCoversTwoMonths() = runBlocking {
         val r = ScreenerEngine(sampleMarket(), cfg, now = future).screen()
         val first = java.time.LocalDate.ofEpochDay(r.trendMeter.first().epochDay)
