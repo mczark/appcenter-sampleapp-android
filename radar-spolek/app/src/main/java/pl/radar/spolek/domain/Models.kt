@@ -110,6 +110,16 @@ data class MarketBreadthDay(
     val unchanged: Int,
 ) {
     val net: Int get() = advancers - decliners
+
+    /** Liczba spółek z notowaniem tego dnia i poprzedniego. */
+    val total: Int get() = advancers + decliners + unchanged
+
+    /** Odsetek spółek rosnących (0–1) wśród wszystkich z notowaniem; null, gdy brak danych. */
+    val advancingShare: Double? get() = if (total == 0) null else advancers.toDouble() / total
+
+    /** Trendomierz „zielony”: rosło co najmniej 50% spółek; poniżej 50% – „czerwony”. */
+    val isGreen: Boolean get() = (advancingShare ?: 0.0) >= 0.5
+    val isRed: Boolean get() = advancingShare != null && advancingShare!! < 0.5
 }
 
 /** Spółka w wyraźnym trendzie wzrostowym (kryterium 2) – do listy w szczegółach branży. */

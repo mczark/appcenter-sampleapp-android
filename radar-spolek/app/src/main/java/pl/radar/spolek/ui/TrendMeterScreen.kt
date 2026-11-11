@@ -44,18 +44,14 @@ private enum class MeterSort(val label: String) {
     NAME("Nazwa"),
 }
 
-/** Udział rosnących wśród spółek, które zmieniły cenę, w ostatniej sesji (0–1). */
-private fun GroupMeter.lastShare(): Double {
-    val d = days.lastOrNull() ?: return 0.5
-    val moved = d.advancers + d.decliners
-    return if (moved == 0) 0.5 else d.advancers.toDouble() / moved
-}
+/** Odsetek spółek rosnących w ostatniej sesji (0–1). */
+private fun GroupMeter.lastShare(): Double = days.lastOrNull()?.advancingShare ?: 0.0
 
-private fun GroupMeter.greenDays() = days.count { it.net > 0 }
+private fun GroupMeter.greenDays() = days.count { it.isGreen }
 
 /** Ostatnie 2 tygodnie = 10 sesji. */
 private const val TWO_WEEKS = 10
-private fun GroupMeter.green2w() = days.takeLast(TWO_WEEKS).count { it.net > 0 }
+private fun GroupMeter.green2w() = days.takeLast(TWO_WEEKS).count { it.isGreen }
 
 /** Drill-down trendomierza: osobny trendomierz dla każdej branży (lub sektora). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,8 +120,8 @@ fun TrendMeterScreen(vm: MainViewModel, onBack: () -> Unit, onOpenGroup: (level:
                         label = { Text("Szukaj ${if (level == MeterLevel.INDUSTRY) "branży" else "sektora"}") },
                         singleLine = true, modifier = Modifier.fillMaxWidth(),
                     )
-                    val green = all.count { it.days.last().net > 0 }
-                    val red = all.count { it.days.last().net < 0 }
+                    val green = all.count { it.days.last().isGreen }
+                    val red = all.count { it.days.last().isRed }
                     Text(
                         "Ostatnia sesja (${Fmt.day(all.first().days.last().epochDay)}): $green zielonych, $red czerwonych " +
                             "z ${all.size}. Dotknij grupy, by zobaczyć jej spółki w trendzie wzrostowym.",
@@ -155,7 +151,7 @@ private fun GroupMeterRow(g: GroupMeter, uptrend: Int, onOpen: () -> Unit) {
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text(g.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2)
                     Text(
-                        "${g.size} spółek · w trendzie 6 mies.: $uptrend · ostatnio ▲ ${last.advancers} ▼ ${last.decliners}",
+                        "${g.size} spółek · w trendzie 6 mies.: $uptrend · ostatnio rosło ${Fmt.pct(last.advancingShare ?: 0.0, false)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
