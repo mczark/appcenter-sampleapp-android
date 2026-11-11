@@ -32,6 +32,14 @@ Kryteria opisane słowami zamieniłem na konkretne reguły. Każdy próg można 
 | 3 | P/E nie wyższe niż mediana branży | P/E TTM spółki ≤ mediana (× mnożnik, domyślnie 100%) dodatnich P/E spółek z tej samej grupy. Spółki ze stratą (ujemne lub brakujące P/E) są pomijane. |
 | 4 | Odbicie po korekcie do poziomu ostatniego wyraźnego szczytu z ostatniego miesiąca | Szczyt P z ostatnich 22 sesji: najwyższy high w oknie ±3 sesji, po którym cena spadła o ≥ 3% (dzięki temu jest „wyraźny”). Następnie zamknięcie powyżej P (wybicie) i nowy szczyt T. Potem korekta od T o ≥ 2%, której dołek wypada w strefie P ± 2,5%, a żadne zamknięcie nie spada poniżej tej strefy (poziom się obronił). Na koniec odbicie: ostatnie zamknięcie ≥ dołek + 1,5% i wyższe niż zamknięcie z dnia dołka, przy czym dołek był najwyżej 7 sesji temu. |
 
+## Indeksy na ekranie głównym
+
+Na górze ekranu głównego jest wykres **S&P 500** (`^GSPC`) i **Russell 2000** (`^RUT`), z przełącznikiem indeksu
+i zakresem 1M / 3M / 6M / 1R. Karta pokazuje ostatnią wartość, zmianę dzienną i zmianę w wybranym zakresie, a także
+średnią 50-sesyjną (linia przerywana). Kolor linii zależy od tego, czy indeks w zakresie wzrósł (zielony), czy spadł
+(czerwony). Po dotknięciu lub przeciągnięciu po wykresie widać wartość wybranego dnia. Notowania pochodzą z Yahoo
+Finance, ładują się przy otwarciu aplikacji niezależnie od skanu i są trzymane w pamięci podręcznej przez 15 minut.
+
 ## Trendomierz
 
 Trendomierz to liczba spółek rosnących względem spadających. Dla każdej sesji z ostatnich 2 miesięcy aplikacja liczy,

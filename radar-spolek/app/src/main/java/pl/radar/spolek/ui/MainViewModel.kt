@@ -54,6 +54,19 @@ data class DetailState(
     val bounce: BounceSignal? = null,
 )
 
+/** Indeks na ekranie głównym. */
+enum class MarketIndex(val symbol: String, val label: String) {
+    SP500("^GSPC", "S&P 500"),
+    RUSSELL2000("^RUT", "Russell 2000"),
+}
+
+data class IndexState(
+    val bars: List<Bar> = emptyList(),
+    val loading: Boolean = false,
+    val error: String? = null,
+    val updatedAt: Long = 0L,
+)
+
 /** Szczegóły branży (lub sektora): trendomierz grupy i spółki w trendzie z oceną fundamentalną. */
 data class GroupState(
     val level: String = "",
@@ -76,6 +89,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _detail = MutableStateFlow(DetailState())
     val detail: StateFlow<DetailState> = _detail.asStateFlow()
 
+    private val _indices = MutableStateFlow(MarketIndex.entries.associateWith { IndexState() })
+    val indices: StateFlow<Map<MarketIndex, IndexState>> = _indices.asStateFlow()
+
     private val _group = MutableStateFlow(GroupState())
     val group: StateFlow<GroupState> = _group.asStateFlow()
 
@@ -83,6 +99,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     init {
+        loadIndices()
         viewModelScope.launch {
             WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow(Scheduler.NOW).collect { infos ->
                 val info = infos.firstOrNull() ?: return@collect
@@ -95,8 +112,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 ?: if (info.state == WorkInfo.State.ENQUEUED) "Oczekiwanie na sieć…" else it.progressMsg,
                         )
                     }
-                    WorkInfo.State.SUCCEEDED -> _home.update {
-                        it.copy(running = false, result = resultStore.load(), error = null)
+                    WorkInfo.State.SUCCEEDED -> {
+                        _home.update { it.copy(running = false, result = resultStore.load(), error = null) }
+                        loadIndices()
                     }
                     WorkInfo.State.FAILED -> _home.update {
                         it.copy(running = false, error = info.outputData.getString(ScreeningWorker.KEY_ERROR) ?: "Błąd skanowania")
@@ -109,6 +127,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow(Scheduler.WEEKLY).collect {
                 _home.update { s -> if (s.running) s else s.copy(result = resultStore.load()) }
+            }
+        }
+    }
+
+    /** Pobiera notowania S&P 500 i Russell 2000 (niezależnie od skanu). */
+    fun loadIndices(force: Boolean = false) {
+        for (idx in MarketIndex.entries) {
+            val cur = _indices.value.getValue(idx)
+            if (cur.loading) continue
+            if (!force && cur.bars.isNotEmpty() && System.currentTimeMillis() - cur.updatedAt < 15 * 60_000L) continue
+            _indices.update { it + (idx to cur.copy(loading = true, error = null)) }
+            viewModelScope.launch {
+                val repo = Repository(getApplication(), _settings.value.fmpKey, _settings.value.universe)
+                val next = try {
+                    val bars = repo.indexBars(idx.symbol)
+                    IndexState(bars = bars, updatedAt = System.currentTimeMillis(),
+                        error = if (bars.isEmpty()) "Brak notowań" else null)
+                } catch (e: Exception) {
+                    _indices.value.getValue(idx).copy(loading = false, error = e.message ?: "Błąd pobierania")
+                }
+                _indices.update { it + (idx to next) }
             }
         }
     }

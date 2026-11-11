@@ -180,6 +180,21 @@ class Repository(
         }
     }
 
+    /** Notowania indeksu (np. ^GSPC, ^RUT) z ostatniego roku; cache 15 min, przy braku sieci – ostatnia kopia. */
+    suspend fun indexBars(symbol: String): List<Bar> = withContext(Dispatchers.IO) {
+        val f = File(barsDir, "idx_" + symbol.replace("^", "") + ".json")
+        if (f.exists() && System.currentTimeMillis() - f.lastModified() < 15 * 60_000L) {
+            runCatching { return@withContext decodeBars(f.readText()) }
+        }
+        try {
+            val bars = yahoo.dailyBars(symbol, "1y")
+            if (bars.isNotEmpty()) f.writeText(encodeBars(bars))
+            bars
+        } catch (e: IOException) {
+            if (f.exists()) decodeBars(f.readText()) else throw e
+        }
+    }
+
     /** Pełne świece z 6 miesięcy dla kandydatów (mniej danych niż rok). */
     override suspend fun ohlc(symbol: String): List<Bar> = withContext(Dispatchers.IO) {
         val f = File(barsDir, symbol.replace('/', '_') + ".6mo.json")

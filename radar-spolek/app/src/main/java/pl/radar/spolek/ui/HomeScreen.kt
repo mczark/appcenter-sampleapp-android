@@ -96,6 +96,7 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
                     },
                 )
             }
+            item { IndexChartCard(vm) }
             item { RunCard(state, vm::runNow) }
             state.result?.let { r ->
                 if (r.trendMeter.isNotEmpty()) item {
